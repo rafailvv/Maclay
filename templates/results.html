@@ -25,7 +25,7 @@
                     <div class="success-icon">
                         <i class="fas fa-check-circle"></i>
                     </div>
-                    <h1 class="results-title">Отчет готов!</h1>
+                    <h1 class="results-title">{{ report_title }}</h1>
                     <p class="results-subtitle">
                         ИИ-ассистент завершил анализ и подготовил детальный отчет
                     </p>
@@ -40,6 +40,10 @@
                     <button class="action-btn copy-btn" onclick="copyToClipboard()">
                         <i class="fas fa-copy"></i>
                         Копировать текст
+                    </button>
+                    <button class="action-btn" onclick="shareReport()">
+                        <i class="fas fa-share"></i>
+                        Поделиться
                     </button>
                     <button class="action-btn new-research-btn" onclick="startNewResearch()">
                         <i class="fas fa-plus"></i>
@@ -96,28 +100,6 @@
                     </div>
                 </div>
 
-                <!-- Additional Actions -->
-                <div class="additional-actions">
-                    <h3>Дополнительные действия:</h3>
-                    <div class="action-grid">
-                        <button class="secondary-btn" onclick="shareReport()">
-                            <i class="fas fa-share"></i>
-                            Поделиться
-                        </button>
-                        <button class="secondary-btn" onclick="printReport()">
-                            <i class="fas fa-print"></i>
-                            Печать
-                        </button>
-                        <button class="secondary-btn" onclick="saveToFavorites()">
-                            <i class="fas fa-bookmark"></i>
-                            Сохранить
-                        </button>
-                        <button class="secondary-btn" onclick="sendToEmail()">
-                            <i class="fas fa-envelope"></i>
-                            Отправить
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -172,7 +154,11 @@
                 .replace(/\*(.*?)\*/g, '<em>$1</em>')
                 // Links - improved formatting (avoid double processing)
                 .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>')
-                .replace(/(?<!href=")(https?:\/\/[^\s<>"]+)(?![^<]*<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>')
+                .replace(/(?<!href=")(https?:\/\/[^\s<>"\)\]]+)(?![^<]*<\/a>)/g, function(match) {
+                    // Убираем лишние символы в конце URL
+                    let cleanUrl = match.replace(/[.,;!?]+$/, '');
+                    return '<a href="' + cleanUrl + '" target="_blank" rel="noopener noreferrer" class="source-link">' + cleanUrl + '</a>';
+                })
                 // Tables - improved algorithm to group related rows and avoid empty cells
                 .replace(/(.*\|.*\n)+/g, function(match) {
                     const lines = match.trim().split('\n').filter(line => line.trim());
@@ -283,6 +269,7 @@
             const sourcesCount = sourceMatches ? Math.min(sourceMatches.length, 50) : 30;
             document.getElementById('sources-count').textContent = sourcesCount + '+';
         }
+
 
         function exportToPDF() {
             const exportBtn = document.querySelector('.export-btn');
@@ -502,6 +489,38 @@
             });
         }
 
+        function shareReport() {
+            const reportId = new URLSearchParams(window.location.search).get('report_id');
+            if (reportId) {
+                const shareUrl = `${window.location.origin}/results?report_id=${reportId}`;
+                
+                if (navigator.share) {
+                    // Используем Web Share API если доступен
+                    navigator.share({
+                        title: 'Отчет исследования',
+                        text: 'Посмотрите на этот отчет исследования',
+                        url: shareUrl
+                    });
+                } else {
+                    // Копируем ссылку в буфер обмена
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                        alert('Ссылка на отчет скопирована в буфер обмена!');
+                    }).catch(() => {
+                        // Fallback для старых браузеров
+                        const textArea = document.createElement('textarea');
+                        textArea.value = shareUrl;
+                        document.body.appendChild(textArea);
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        alert('Ссылка на отчет скопирована в буфер обмена!');
+                    });
+                }
+            } else {
+                alert('Этот отчет не может быть опубликован, так как он не сохранен в базе данных.');
+            }
+        }
+
         function startNewResearch() {
             if (confirm('Начать новое исследование? Текущий отчет будет потерян.')) {
                 window.location.href = '/';
@@ -643,44 +662,6 @@
             font-weight: 700;
         }
 
-        .additional-actions {
-            margin-top: 40px;
-            padding: 30px;
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 20px;
-        }
-
-        .additional-actions h3 {
-            margin-bottom: 20px;
-            color: #333;
-        }
-
-        .action-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-        }
-
-        .secondary-btn {
-            background: rgba(102, 126, 234, 0.1);
-            color: #667eea;
-            border: 2px solid rgba(102, 126, 234, 0.3);
-            padding: 12px 20px;
-            border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            justify-content: center;
-        }
-
-        .secondary-btn:hover {
-            background: rgba(102, 126, 234, 0.2);
-            border-color: #667eea;
-            transform: translateY(-2px);
-        }
 
         .no-report {
             text-align: center;
@@ -739,16 +720,12 @@
                 grid-template-columns: repeat(2, 1fr);
             }
             
-            .action-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
 
         @media print {
             .background-animation,
             .results-actions,
-            .report-stats,
-            .additional-actions {
+            .report-stats {
                 display: none;
             }
             

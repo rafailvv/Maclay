@@ -1,14 +1,18 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import httpx
 import asyncio
 import os
+import uuid
 from dotenv import load_dotenv
 import json
 from datetime import datetime
 from config import config
+from database import init_database, get_db, ResearchReport, UserSession
+from services import ReportService, SessionManager
+from sqlalchemy.orm import Session
 
 load_dotenv()
 
@@ -21,6 +25,13 @@ app = FastAPI(
 # Подключение статических файлов и шаблонов
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# Initialize database
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    init_database()
+    print("✅ Database initialized")
 
 # Проверяем конфигурацию при запуске
 config_errors = config.validate_config()
@@ -45,7 +56,8 @@ async def process_feature(
     research_element: str = Form(...),
     benchmarks: str = Form(""),
     required_players: str = Form(""),
-    required_countries: str = Form("")
+    required_countries: str = Form(""),
+    db: Session = Depends(get_db)
 ):
     # Сохраняем данные для обработки
     research_data = {
@@ -63,8 +75,16 @@ async def process_feature(
     })
 
 @app.post("/generate-report")
-async def generate_report(request: Request):
+async def generate_report(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
+    
+    # Извлекаем данные из запроса
+    product_description = data.get('product_description', '')
+    segment = data.get('segment', '')
+    research_element = data.get('research_element', '')
+    benchmarks = data.get('benchmarks', '')
+    required_players = data.get('required_players', '')
+    required_countries = data.get('required_countries', '')
     
     # Создаем промпт для Mistral
     prompt = f"""
@@ -81,12 +101,12 @@ async def generate_report(request: Request):
 Дать минимум 10 подтверждённых кейсов с источниками и скриншотами.
 
 Входные параметры (подставь из запроса)
-- Описание продукта и бизнес-контекста: {data['product_description']}
-- Сегмент: {data['segment']}
-- Что исследуем (элемент продукта): {data['research_element']}
-- Известные бенчмарки (если есть): {data['benchmarks']}
-- Обязательные игроки к рассмотрению (если есть): {data['required_players']}
-- Обязательные страны к рассмотрению (если есть): {data['required_countries']}
+- Описание продукта и бизнес-контекста: {product_description}
+- Сегмент: {segment}
+- Что исследуем (элемент продукта): {research_element}
+- Известные бенчмарки (если есть): {benchmarks}
+- Обязательные игроки к рассмотрению (если есть): {required_players}
+- Обязательные страны к рассмотрению (если есть): {required_countries}
 
 Обязательные источники и приоритет
 - Официальные сайты/документы компаний (прайсы, релизы, справки, help-центры).
@@ -210,9 +230,39 @@ Mapping к нашим целям/метрикам: какие north-star/под�
             result = response.json()
             report_content = result["choices"][0]["message"]["content"]
             
+            # Сохраняем отчет в базу данных
+            report_service = ReportService(db)
+            session_manager = SessionManager(db)
+            
+            # Получаем или создаем сессию
+            session_id = request.cookies.get("session_id")
+            if not session_id:
+                session_id = session_manager.create_session(
+                    ip_address=request.client.host,
+                    user_agent=request.headers.get("user-agent")
+                )
+            
+            # Создаем отчет
+            report = report_service.create_report(
+                title=f"Исследование: {research_element}",
+                content=report_content,
+                research_type="feature",
+                product_description=product_description,
+                segment=segment,
+                research_element=research_element,
+                benchmarks=benchmarks,
+                required_players=required_players,
+                required_countries=required_countries,
+                session_id=session_id,
+                ai_model=config.MISTRAL_MODEL,
+                processing_time=30,  # Примерное время
+                tokens_used=len(report_content.split())  # Примерное количество токенов
+            )
+            
             return {
                 "success": True,
                 "report": report_content,
+                "report_id": report.id,
                 "timestamp": datetime.now().isoformat()
             }
         else:
@@ -223,11 +273,88 @@ Mapping к нашим целям/метрикам: какие north-star/под�
             }
 
 @app.get("/results", response_class=HTMLResponse)
-async def results_page(request: Request, report: str = ""):
+async def results_page(request: Request, report_id: int = None, db: Session = Depends(get_db)):
+    report_content = ""
+    report_title = "Отчет не найден"
+    
+    if report_id:
+        # Загружаем отчет из базы данных
+        report_service = ReportService(db)
+        report = report_service.get_report(report_id)
+        if report:
+            report_content = report.content
+            report_title = report.title
+        else:
+            report_content = "Отчет с указанным ID не найден."
+    else:
+        # Получаем report из query параметра (для обратной совместимости)
+        report = request.query_params.get("report", "")
+        report_content = report
+        report_title = "Результат исследования"
+    
     return templates.TemplateResponse("results.html", {
         "request": request,
-        "report": report
+        "report": report_content,
+        "report_id": report_id,
+        "report_title": report_title
     })
+
+@app.get("/reports")
+async def get_reports(request: Request, db: Session = Depends(get_db)):
+    """Получить список отчетов"""
+    report_service = ReportService(db)
+    session_id = request.cookies.get("session_id")
+    
+    if session_id:
+        reports = report_service.get_reports_by_session(session_id)
+    else:
+        reports = report_service.get_recent_reports(10)
+    
+    return {
+        "reports": [
+            {
+                "id": report.id,
+                "title": report.title,
+                "research_type": report.research_type,
+                "created_at": report.created_at.isoformat(),
+                "research_element": report.research_element
+            }
+            for report in reports
+        ]
+    }
+
+@app.get("/reports/{report_id}")
+async def get_report(report_id: int, db: Session = Depends(get_db)):
+    """Получить конкретный отчет"""
+    report_service = ReportService(db)
+    report = report_service.get_report(report_id)
+    
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    return {
+        "id": report.id,
+        "title": report.title,
+        "content": report.content,
+        "research_type": report.research_type,
+        "created_at": report.created_at.isoformat(),
+        "research_element": report.research_element,
+        "segment": report.segment,
+        "benchmarks": report.benchmarks,
+        "required_players": report.required_players,
+        "required_countries": report.required_countries
+    }
+
+@app.delete("/reports/{report_id}")
+async def delete_report(report_id: int, db: Session = Depends(get_db)):
+    """Удалить отчет"""
+    report_service = ReportService(db)
+    success = report_service.delete_report(report_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    return {"message": "Report deleted successfully"}
 
 @app.post("/export-pdf")
 async def export_pdf(request: Request):
