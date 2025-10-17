@@ -474,19 +474,53 @@
             if (!reportContent) return;
 
             const text = reportContent.innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                const copyBtn = document.querySelector('.copy-btn');
-                if (copyBtn) {
-                    const originalText = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+            const copyBtn = document.querySelector('.copy-btn');
+            
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => {
+                    if (copyBtn) {
+                        const originalText = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalText;
+                        }, 2000);
+                    }
+                }).catch(err => {
+                    console.error('Failed to copy: ', err);
+                    copyToClipboardFallback(text, copyBtn);
+                });
+            } else {
+                copyToClipboardFallback(text, copyBtn);
+            }
+        }
+
+        function copyToClipboardFallback(text, button) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                document.execCommand('copy');
+                if (button) {
+                    const originalText = button.innerHTML;
+                    button.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
                     setTimeout(() => {
-                        copyBtn.innerHTML = originalText;
+                        button.innerHTML = originalText;
                     }, 2000);
+                } else {
+                    alert('Скопировано в буфер обмена!');
                 }
-            }).catch(err => {
+            } catch (err) {
                 console.error('Failed to copy: ', err);
-                alert('Не удалось скопировать текст');
-            });
+                alert('Не удалось скопировать текст. Попробуйте выделить и скопировать вручную.');
+            }
+            
+            document.body.removeChild(textArea);
         }
 
         function shareReport() {
@@ -535,12 +569,21 @@
                     url: window.location.href
                 });
             } else {
-                // Fallback: copy URL to clipboard
-                navigator.clipboard.writeText(window.location.href).then(() => {
-                    alert('Ссылка скопирована в буфер обмена');
-                });
+                // Fallback: copy URL to clipboard with proper error handling
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(window.location.href).then(() => {
+                        alert('Ссылка скопирована в буфер обмена');
+                    }).catch(() => {
+                        // Fallback for older browsers
+                        copyToClipboardFallback(window.location.href, null);
+                    });
+                } else {
+                    // Fallback for older browsers
+                    copyToClipboardFallback(window.location.href, null);
+                }
             }
         }
+
 
         function printReport() {
             window.print();
