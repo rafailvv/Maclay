@@ -171,8 +171,8 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Redirect to results page with report
-                    window.location.href = `/results?report=${encodeURIComponent(data.report)}`;
+                    // Redirect to results page with report ID
+                    window.location.href = `/results?report_id=${data.report_id}`;
                 } else {
                     alert('Ошибка при генерации отчета: ' + (data.message || 'Неизвестная ошибка'));
                     window.location.href = '/';
