@@ -869,6 +869,11 @@ body {
     font-weight: 600;
 }
 
+/* Hide br tags in report content */
+.report-content br {
+    display: none;
+}
+
 .report-content h1 {
     font-size: 2rem;
     border-bottom: 3px solid #667eea;
@@ -1034,17 +1039,20 @@ body {
 .source-link {
     color: #667eea;
     text-decoration: none;
-    font-weight: 500;
-    padding: 2px 8px;
-    background: rgba(102, 126, 234, 0.1);
-    border-radius: 6px;
-    border: 1px solid rgba(102, 126, 234, 0.2);
+    font-weight: 400;
+    padding: 1px 4px;
+    background: rgba(102, 126, 234, 0.08);
+    border-radius: 4px;
+    border: 1px solid rgba(102, 126, 234, 0.15);
     transition: all 0.3s ease;
     display: inline-block;
-    margin: 2px 4px;
-    font-size: 0.9rem;
+    margin: 1px 2px;
+    font-size: 0.75rem;
     position: relative;
     overflow: hidden;
+    vertical-align: baseline;
+    line-height: 1.2;
+    margin-bottom: -4px;
 }
 
 .source-link::before {
@@ -1059,10 +1067,10 @@ body {
 }
 
 .source-link:hover {
-    background: rgba(102, 126, 234, 0.15);
+    background: rgba(102, 126, 234, 0.12);
     border-color: #667eea;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    transform: translateY(-0.5px);
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.15);
 }
 
 .source-link:hover::before {
@@ -1331,13 +1339,13 @@ body {
     
     /* Mobile source links */
     .source-link {
-        font-size: 0.8rem;
-        padding: 1px 6px;
-        margin: 1px 2px;
+        font-size: 0.7rem;
+        padding: 1px 3px;
+        margin: 1px 1px;
     }
     
     .source-link::after {
-        font-size: 0.7rem;
-        margin-left: 2px;
+        font-size: 0.6rem;
+        margin-left: 1px;
     }
 }

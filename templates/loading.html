@@ -73,17 +73,17 @@
 
                 <!-- Research Data Summary -->
                 <div class="research-summary">
-                    <h3>Параметры исследования:</h3>
+                    <h3 id="research-title">Параметры исследования:</h3>
                     <div class="summary-grid">
-                        <div class="summary-item">
-                            <strong>Элемент:</strong>
-                            <span id="research-element">{{ research_data.research_element }}</span>
+                        <div class="summary-item" id="element-item">
+                            <strong id="element-label">Элемент:</strong>
+                            <span id="research-element">{{ research_data.research_element or research_data.product_characteristics }}</span>
                         </div>
                         <div class="summary-item">
                             <strong>Сегмент:</strong>
                             <span id="segment">{{ research_data.segment }}</span>
                         </div>
-                        <div class="summary-item" v-if="research_data.benchmarks">
+                        <div class="summary-item" id="benchmarks-item" style="display: none;">
                             <strong>Бенчмарки:</strong>
                             <span id="benchmarks">{{ research_data.benchmarks }}</span>
                         </div>
@@ -124,13 +124,37 @@
             product_description: "{{ research_data.product_description }}",
             segment: "{{ research_data.segment }}",
             research_element: "{{ research_data.research_element }}",
+            product_characteristics: "{{ research_data.product_characteristics }}",
             benchmarks: "{{ research_data.benchmarks }}",
             required_players: "{{ research_data.required_players }}",
             required_countries: "{{ research_data.required_countries }}"
         };
 
+        // Determine research type and update UI accordingly
+        function updateResearchType() {
+            const hasProductCharacteristics = window.researchData.product_characteristics && window.researchData.product_characteristics.trim() !== '';
+            const hasResearchElement = window.researchData.research_element && window.researchData.research_element.trim() !== '';
+            
+            if (hasProductCharacteristics && !hasResearchElement) {
+                // This is a product research
+                document.getElementById('research-title').textContent = 'Параметры исследования продукта:';
+                document.getElementById('element-label').textContent = 'Характеристики продукта:';
+                document.getElementById('benchmarks-item').style.display = 'none';
+            } else {
+                // This is a feature research
+                document.getElementById('research-title').textContent = 'Параметры исследования:';
+                document.getElementById('element-label').textContent = 'Элемент:';
+                if (window.researchData.benchmarks && window.researchData.benchmarks.trim() !== '') {
+                    document.getElementById('benchmarks-item').style.display = 'block';
+                }
+            }
+        }
+
         // Start the report generation process
         document.addEventListener('DOMContentLoaded', function() {
+            // Update research type UI
+            updateResearchType();
+            
             // Animate progress steps
             const steps = document.querySelectorAll('.step');
             let currentStep = 0;

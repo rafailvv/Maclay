@@ -120,6 +120,9 @@
 
             let content = reportContent.innerHTML;
             
+            // Remove all br tags
+            content = content.replace(/<br\s*\/?>/gi, '');
+            
             // Helper function to format cell content
             function formatCellContent(cell) {
                 if (!cell) return '';

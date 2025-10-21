@@ -7,7 +7,58 @@ document.addEventListener('DOMContentLoaded', function() {
         card.style.animationDelay = `${index * 0.1}s`;
         card.classList.add('slide-in');
     });
+
+    // Reset card states when page loads (for back navigation)
+    resetCardStates();
 });
+
+// Handle back/forward navigation
+window.addEventListener('pageshow', function(event) {
+    // Reset card states when returning to the page
+    if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+        resetCardStates();
+    }
+});
+
+// Function to reset all option cards to their original state
+function resetCardStates() {
+    const optionCards = document.querySelectorAll('.option-card');
+    optionCards.forEach(card => {
+        // Reset styles
+        card.style.transform = '';
+        card.style.opacity = '';
+        
+        // Check if card is in loading state and restore original content
+        const loadingSpinner = card.querySelector('.loading-spinner');
+        if (loadingSpinner) {
+            // Restore original content based on card type
+            const cardType = card.getAttribute('onclick');
+            if (cardType && cardType.includes('feature')) {
+                card.innerHTML = `
+                    <div class="card-icon">
+                        <i class="fas fa-lightbulb"></i>
+                    </div>
+                    <h3>Фича</h3>
+                    <p>Исследование конкретной функциональности продукта</p>
+                    <div class="card-arrow">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                `;
+            } else if (cardType && cardType.includes('product')) {
+                card.innerHTML = `
+                    <div class="card-icon">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <h3>Продукт</h3>
+                    <p>Комплексный анализ продукта и его позиционирования</p>
+                    <div class="card-arrow">
+                        <i class="fas fa-arrow-right"></i>
+                    </div>
+                `;
+            }
+        }
+    });
+}
 
 // Function to handle option selection
 function selectOption(type) {
@@ -30,18 +81,7 @@ function selectOption(type) {
                 window.location.href = '/feature';
                 break;
             case 'product':
-                // TODO: Implement product research
-                alert('Функция "Продукт" будет реализована в следующих версиях');
-                selectedCard.innerHTML = originalContent;
-                selectedCard.style.transform = '';
-                selectedCard.style.opacity = '';
-                break;
-            case 'gap':
-                // TODO: Implement gap analysis
-                alert('Функция "Gap-анализ" будет реализована в следующих версиях');
-                selectedCard.innerHTML = originalContent;
-                selectedCard.style.transform = '';
-                selectedCard.style.opacity = '';
+                window.location.href = '/product';
                 break;
         }
     }, 1000);
