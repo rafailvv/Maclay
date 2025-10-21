@@ -83,8 +83,27 @@ def get_db():
 
 def init_database():
     """Initialize database with tables"""
-    create_tables()
-    print("✅ Database tables created successfully")
+    import os
+    
+    try:
+        # Create data directory if it doesn't exist
+        data_dir = os.path.dirname(DATABASE_URL.replace("sqlite:///", ""))
+        if data_dir and not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            print(f"✅ Created data directory: {data_dir}")
+        
+        # Create database file if it doesn't exist
+        db_path = DATABASE_URL.replace("sqlite:///", "")
+        if not os.path.exists(db_path):
+            print(f"✅ Creating new database: {db_path}")
+        
+        # Create tables
+        create_tables()
+        print("✅ Database tables created successfully")
+        
+    except Exception as e:
+        print(f"❌ Error initializing database: {e}")
+        raise
 
 if __name__ == "__main__":
     init_database()
