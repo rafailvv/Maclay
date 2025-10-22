@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Результаты исследования - AI Research Assistant</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -95,7 +96,7 @@
                         <i class="fas fa-clock"></i>
                         <div>
                             <strong>Время анализа</strong>
-                            <span id="analysis-time">2-3 мин</span>
+                            <span id="time-count">2-3 мин</span>
                         </div>
                     </div>
                 </div>
@@ -120,16 +121,63 @@
 
             let content = reportContent.innerHTML;
             
-            // Remove all br tags
-            content = content.replace(/<br\s*\/?>/gi, '');
+            // Replace multiple consecutive br tags with single br
+            content = content.replace(/(<br\s*\/?>){2,}/gi, '<br>');
+            
+            // Final cleanup - remove leading and trailing whitespace
+            content = content.trim();
+            
+            // Add real statistics
+            addRealStatistics();
+            
+            function addRealStatistics() {
+                // Get statistics from sessionStorage
+                const statsData = sessionStorage.getItem('researchStats');
+                if (!statsData) {
+                    console.log('📊 Статистика не найдена в sessionStorage');
+                    return;
+                }
+                
+                try {
+                    const stats = JSON.parse(statsData);
+                    console.log('📊 Загружена статистика:', stats);
+                    
+                    // Update report-stats elements
+                    updateStatElement('countries-count', stats.countriesFound || 0);
+                    updateStatElement('sources-count', stats.sourcesFound || 0);
+                    updateStatElement('cases-count', stats.casesFound || 0);
+                    updateStatElement('time-count', (stats.totalTimeMin || 0) + ' мин');
+                    
+                } catch (error) {
+                    console.error('❌ Ошибка парсинга статистики:', error);
+                }
+            }
+            
+            function updateStatElement(elementId, value) {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.textContent = value;
+                    console.log(`📊 Обновлен ${elementId}: ${value}`);
+                } else {
+                    console.log(`⚠️ Элемент ${elementId} не найден`);
+                }
+            }
             
             // Helper function to format cell content
             function formatCellContent(cell) {
                 if (!cell) return '';
                 
                 let formatted = cell
+                    // Headers in cells
+                    .replace(/^####\s+(.*$)/gim, '<h4>$1</h4>')
+                    .replace(/^###\s+(.*$)/gim, '<h3>$1</h3>')
+                    .replace(/^##\s+(.*$)/gim, '<h2>$1</h2>')
+                    .replace(/^#\s+(.*$)/gim, '<h1>$1</h1>')
+                    // Bold text
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+                    .replace(/^\*\s*/gm, '')
+                    // Lists
                     .replace(/^•\s*(.+)$/gm, '<li>$1</li>')
                     .replace(/^(\d+)\.\s*(.+)$/gm, '<li>$2</li>');
                 
@@ -143,18 +191,29 @@
             
             // Convert Markdown to HTML
             content = content
+                // Remove leading and trailing whitespace
+                .trim()
                 // Remove paragraphs with only dashes
                 .replace(/---/g, '')
                 .replace(/\s*---\s*/g, '')
-                // Headers
-                .replace(/^#### (.*$)/gim, '<h4>$1</h4>')
-                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-                // Bold text
+                // Remove multiple leading newlines
+                .replace(/^\n+/, '')
+                // Remove multiple trailing newlines
+                .replace(/\n+$/, '')
+                // Remove leading whitespace from each line
+                .replace(/^\s+/gm, '')
+                // Remove trailing whitespace from each line
+                .replace(/\s+$/gm, '')
+                // Headers - improved to handle whitespace
+                .replace(/^####\s+(.*$)/gim, '<h4>$1</h4>')
+                .replace(/^###\s+(.*$)/gim, '<h3>$1</h3>')
+                .replace(/^##\s+(.*$)/gim, '<h2>$1</h2>')
+                .replace(/^#\s+(.*$)/gim, '<h1>$1</h1>')
+                // Bold text (both **text** and *text* should be bold)
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                // Italic text
-                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+                // Remove single asterisks at the beginning of lines
+                .replace(/^\*\s*/gm, '')
                 // Links - improved formatting (avoid double processing)
                 .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>')
                 .replace(/(?<!href=")(https?:\/\/[^\s<>"\)\]]+)(?![^<]*<\/a>)/g, function(match) {
@@ -559,9 +618,7 @@
         }
 
         function startNewResearch() {
-            if (confirm('Начать новое исследование? Текущий отчет будет потерян.')) {
-                window.location.href = '/';
-            }
+            window.location.href = '/';
         }
 
         function shareReport() {
@@ -755,6 +812,40 @@
 
         .table-of-contents a:hover {
             color: #764ba2;
+        }
+
+        /* Headers styling */
+        h1 {
+            color: #2c3e50;
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            line-height: 1.3;
+        }
+        h2 {
+            color: #34495e;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin: 25px 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e1e5e9;
+            line-height: 1.4;
+        }
+        h3 {
+            color: #667eea;
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin: 20px 0 12px 0;
+            line-height: 1.4;
+        }
+        h4 {
+            color: #7f8c8d;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 15px 0 10px 0;
+            line-height: 1.4;
         }
 
         @media (max-width: 768px) {

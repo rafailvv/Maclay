@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Генерация отчета - AI Research Assistant</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -40,33 +41,55 @@
 
                 <!-- Progress Steps -->
                 <div class="progress-steps">
-                    <div class="step active">
+                    <div class="step pending" data-stage="data_collection">
                         <div class="step-icon">
                             <i class="fas fa-search"></i>
                         </div>
                         <div class="step-content">
-                            <h4>Поиск данных</h4>
-                            <p>Собираем информацию о рынке</p>
+                            <h4>Сбор данных</h4>
+                            <p class="step-message">Собираем информацию о рынке</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill"></div>
+                            </div>
                         </div>
                     </div>
                     
-                    <div class="step">
+                    <div class="step pending" data-stage="case_analysis">
                         <div class="step-icon">
                             <i class="fas fa-chart-bar"></i>
                         </div>
                         <div class="step-content">
                             <h4>Анализ кейсов</h4>
-                            <p>Находим лучшие практики</p>
+                            <p class="step-message">Находим лучшие практики</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill"></div>
+                            </div>
                         </div>
                     </div>
                     
-                    <div class="step">
+                    <div class="step pending" data-stage="link_verification">
+                        <div class="step-icon">
+                            <i class="fas fa-link"></i>
+                        </div>
+                        <div class="step-content">
+                            <h4>Проверка ссылок</h4>
+                            <p class="step-message">Проверяем и дополняем источники</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step pending" data-stage="report_generation">
                         <div class="step-icon">
                             <i class="fas fa-file-alt"></i>
                         </div>
                         <div class="step-content">
-                            <h4>Формирование отчета</h4>
-                            <p>Создаем детальный анализ</p>
+                            <h4>Генерация отчета</h4>
+                            <p class="step-message">Создаем детальный анализ</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -112,7 +135,42 @@
                 <!-- Estimated Time -->
                 <div class="time-estimate">
                     <i class="fas fa-clock"></i>
-                    <span>Примерное время: 2-3 минуты</span>
+                    <span>Примерное время: 5-7 минут</span>
+                </div>
+
+                <!-- Restart Button (hidden by default) -->
+                <div class="restart-section" id="restartSection" style="display: none;">
+                    <button class="restart-btn" onclick="restartResearch()">
+                        <i class="fas fa-redo"></i>
+                        Перезапустить исследование
+                    </button>
+                </div>
+                
+                <!-- Error Container (hidden by default) -->
+                <div class="error-container" id="error-container" style="display: none;">
+                    <div class="error-content">
+                        <div class="error-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="error-text">
+                            <h3>Ошибка при выполнении исследования</h3>
+                            <p id="error-message">Произошла ошибка</p>
+                            <details id="error-details" style="display: none;">
+                                <summary>Детали ошибки</summary>
+                                <pre></pre>
+                            </details>
+                        </div>
+                        <div class="error-actions">
+                            <button class="restart-btn" onclick="restartResearch()">
+                                <i class="fas fa-redo"></i>
+                                Перезапустить исследование
+                            </button>
+                            <button class="home-btn" onclick="window.location.href='/'">
+                                <i class="fas fa-home"></i>
+                                На главную
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -150,23 +208,27 @@
             }
         }
 
+        // WebSocket connection
+        let ws = null;
+        let clientId = null;
+        let statusCheckInterval = null;
+        let stuckTimer = null;
+        
+        // Research statistics
+        let researchStats = {
+            startTime: Date.now(),
+            casesFound: 0,
+            countriesFound: 0,
+            sourcesFound: 0
+        };
+
         // Start the report generation process
         document.addEventListener('DOMContentLoaded', function() {
             // Update research type UI
             updateResearchType();
             
-            // Animate progress steps
-            const steps = document.querySelectorAll('.step');
-            let currentStep = 0;
-            
-            const stepInterval = setInterval(() => {
-                if (currentStep < steps.length) {
-                    steps[currentStep].classList.add('active');
-                    currentStep++;
-                } else {
-                    clearInterval(stepInterval);
-                }
-            }, 2000);
+            // Start WebSocket connection
+            connectWebSocket();
 
             // Animate fun facts
             const facts = document.querySelectorAll('.fact-item');
@@ -182,31 +244,272 @@
             setTimeout(() => {
                 startReportGeneration();
             }, 2000);
+
+            // Start stuck detection timer
+            startStuckDetection();
         });
 
+        function startStuckDetection() {
+            // Show restart button after 3 minutes
+            stuckTimer = setTimeout(() => {
+                console.log('⚠️ Процесс может быть завис, показываем кнопку перезапуска');
+                document.getElementById('restartSection').style.display = 'block';
+            }, 180000); // 3 minutes
+        }
+
+        function checkStatus() {
+            if (!clientId) return;
+            
+            fetch(`/status/${clientId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'inactive') {
+                        console.log('⚠️ Соединение потеряно, показываем кнопку перезапуска');
+                        document.getElementById('restartSection').style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка проверки статуса:', error);
+                });
+        }
+
+        function restartResearch() {
+            console.log('🔄 Перезапускаем исследование');
+            
+            // Reset UI
+            document.getElementById('restartSection').style.display = 'none';
+            const steps = document.querySelectorAll('.step');
+            steps.forEach(step => {
+                step.classList.remove('active', 'completed', 'error');
+                step.classList.add('pending');
+            });
+            
+            // Clear timers
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+            }
+            if (stuckTimer) {
+                clearTimeout(stuckTimer);
+            }
+            
+            // Close existing WebSocket
+            if (ws) {
+                ws.close();
+            }
+            
+            // Restart process
+            setTimeout(() => {
+                startReportGeneration();
+                startStuckDetection();
+            }, 1000);
+        }
+        
+        function showErrorWithRestart(errorMessage, errorDetails) {
+            console.error('❌ Ошибка исследования:', errorMessage);
+            if (errorDetails) {
+                console.error('📋 Детали ошибки:', errorDetails);
+            }
+            
+            // Hide progress steps
+            document.querySelector('.progress-steps').style.display = 'none';
+            
+            // Show error message
+            const errorContainer = document.getElementById('error-container');
+            if (errorContainer) {
+                errorContainer.style.display = 'block';
+                document.getElementById('error-message').textContent = errorMessage;
+                
+                if (errorDetails) {
+                    const detailsElement = document.getElementById('error-details');
+                    if (detailsElement) {
+                        detailsElement.textContent = errorDetails;
+                        detailsElement.style.display = 'block';
+                    }
+                }
+            }
+        }
+
+        function connectWebSocket() {
+            // Generate client ID
+            clientId = 'client_' + Math.random().toString(36).substr(2, 9);
+            
+            // Connect to WebSocket
+            ws = new WebSocket(`ws://${window.location.host}/ws/${clientId}`);
+            
+            ws.onopen = function(event) {
+                console.log('WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+            
+            ws.onclose = function(event) {
+                console.log('WebSocket disconnected');
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function handleWebSocketMessage(data) {
+            console.log('Received message:', data);
+            
+            if (data.type === 'stage_update') {
+                updateStageProgress(data.stage, data.status, data.progress, data.message);
+                
+                // Update statistics based on stage
+                updateResearchStats(data);
+            } else if (data.type === 'completion') {
+                if (data.success) {
+                    // Save final statistics
+                    saveResearchStats();
+                    // Redirect to results page
+                    window.location.href = `/results?report_id=${data.report_id}`;
+                } else {
+                    // Show error with restart option
+                    showErrorWithRestart(data.error || 'Неизвестная ошибка', data.error_details);
+                }
+            }
+        }
+        
+        function updateResearchStats(data) {
+            // Update statistics based on stage progress
+            if (data.stage === 'case_analysis' && data.message) {
+                // Extract numbers from messages like "Проанализировано 3 кейсов"
+                const casesMatch = data.message.match(/(\d+)\s*кейс/i);
+                if (casesMatch) {
+                    researchStats.casesFound = parseInt(casesMatch[1]);
+                }
+            }
+            
+            if (data.stage === 'link_verification' && data.message) {
+                // Extract numbers from messages like "Проверено 15 ссылок"
+                const sourcesMatch = data.message.match(/(\d+)\s*ссылок/i);
+                if (sourcesMatch) {
+                    researchStats.sourcesFound = parseInt(sourcesMatch[1]);
+                }
+                
+                // Extract countries count from messages like "Найдено 3 уникальных стран"
+                const countriesMatch = data.message.match(/(\d+)\s*уникальных\s*стран/i);
+                if (countriesMatch) {
+                    researchStats.countriesFound = parseInt(countriesMatch[1]);
+                    console.log('🌍 Обновлено количество стран:', researchStats.countriesFound);
+                }
+            }
+            
+            // Count countries from research data - this will be updated from actual cases
+            // Initial count from required countries
+            if (window.researchData && window.researchData.required_countries) {
+                const countries = window.researchData.required_countries.split(',').map(c => c.trim()).filter(c => c);
+                researchStats.countriesFound = countries.length;
+            }
+        }
+        
+        function saveResearchStats() {
+            // Calculate total time
+            researchStats.totalTime = Date.now() - researchStats.startTime;
+            researchStats.totalTimeMin = Math.round(researchStats.totalTime / 60000 * 10) / 10;
+            
+            // Save to sessionStorage for results page
+            sessionStorage.setItem('researchStats', JSON.stringify(researchStats));
+            console.log('📊 Сохранена статистика исследования:', researchStats);
+        }
+
+        function updateStageProgress(stage, status, progress, message) {
+            // Find step by data-stage attribute
+            const targetStep = document.querySelector(`[data-stage="${stage}"]`);
+            
+            if (targetStep) {
+                // Update step status
+                targetStep.classList.remove('pending', 'active', 'completed', 'error');
+                targetStep.classList.add(status);
+                
+                // Update progress bar
+                const progressFill = targetStep.querySelector('.progress-fill');
+                if (progressFill) {
+                    progressFill.style.width = progress + '%';
+                }
+                
+                // Update message
+                const messageElement = targetStep.querySelector('.step-message');
+                if (messageElement && message) {
+                    messageElement.textContent = message;
+                }
+                
+                // Update icon based on status
+                const icon = targetStep.querySelector('.step-icon i');
+                if (icon) {
+                    switch(status) {
+                        case 'active':
+                            icon.className = 'fas fa-spinner fa-spin';
+                            break;
+                        case 'completed':
+                            icon.className = 'fas fa-check';
+                            break;
+                        case 'error':
+                            icon.className = 'fas fa-exclamation-triangle';
+                            break;
+                        default:
+                            // Keep original icon
+                            break;
+                    }
+                }
+            }
+        }
+
         function startReportGeneration() {
+            // Add client_id to research data
+            const requestData = {
+                ...window.researchData,
+                client_id: clientId
+            };
+            
+            // Initialize countries count from research data
+            if (window.researchData && window.researchData.required_countries) {
+                const countries = window.researchData.required_countries.split(',').map(c => c.trim()).filter(c => c);
+                researchStats.countriesFound = countries.length;
+                console.log('🌍 Найдено стран в запросе:', countries.length, countries);
+            }
+            
+            console.log('🚀 Отправляем данные исследования:', requestData);
+            console.log('🔗 Client ID:', clientId);
+            
             fetch('/generate-report', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(window.researchData)
+                body: JSON.stringify(requestData)
             })
             .then(response => response.json())
             .then(data => {
+                console.log('📡 Ответ сервера:', data);
                 if (data.success) {
-                    // Redirect to results page with report ID
-                    window.location.href = `/results?report_id=${data.report_id}`;
+                    console.log('✅ Исследование запущено с client_id:', data.client_id);
+                    // Start periodic status check as fallback
+                    startStatusCheck();
                 } else {
-                    alert('Ошибка при генерации отчета: ' + (data.message || 'Неизвестная ошибка'));
+                    alert('Ошибка при запуске исследования: ' + (data.message || 'Неизвестная ошибка'));
                     window.location.href = '/';
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('Произошла ошибка при генерации отчета');
+                console.error('❌ Ошибка:', error);
+                alert('Произошла ошибка при запуске исследования');
                 window.location.href = '/';
             });
+        }
+
+        function startStatusCheck() {
+            // Fallback: check status every 10 seconds
+            statusCheckInterval = setInterval(() => {
+                if (clientId) {
+                    checkStatus();
+                }
+            }, 10000);
         }
     </script>
 
@@ -292,6 +595,48 @@
             transform: translateX(10px);
         }
 
+        .step.completed {
+            opacity: 1;
+            background: rgba(40, 167, 69, 0.1);
+            border-left: 4px solid #28a745;
+        }
+
+        .step.error {
+            opacity: 1;
+            background: rgba(220, 53, 69, 0.1);
+            border-left: 4px solid #dc3545;
+        }
+
+        .step.pending {
+            opacity: 0.5;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(102, 126, 234, 0.2);
+            border-radius: 2px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .step.active .progress-fill {
+            animation: progress-animation 2s ease-in-out infinite;
+        }
+
+        @keyframes progress-animation {
+            0% { width: 0%; }
+            50% { width: 100%; }
+            100% { width: 0%; }
+        }
+
         .step-icon {
             width: 50px;
             height: 50px;
@@ -329,15 +674,16 @@
         }
 
         .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            display: flex;
+            flex-direction: column;
             gap: 15px;
         }
+
 
         .summary-item {
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            align-items: flex-start;
         }
 
         .summary-item strong {
@@ -414,6 +760,124 @@
 
         .time-estimate i {
             color: #667eea;
+        }
+
+        .restart-section {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .restart-btn {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 0 auto;
+        }
+
+        .restart-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(255, 107, 107, 0.3);
+        }
+
+        .restart-btn i {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Error Container Styles */
+        .error-container {
+            margin-top: 30px;
+            text-align: center;
+        }
+        
+        .error-content {
+            background: #fff5f5;
+            border: 2px solid #fed7d7;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .error-icon {
+            font-size: 3rem;
+            color: #e53e3e;
+            margin-bottom: 20px;
+        }
+        
+        .error-text h3 {
+            color: #e53e3e;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+        
+        .error-text p {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+        
+        .error-actions {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .home-btn {
+            background: linear-gradient(135deg, #4299e1, #3182ce);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .home-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(66, 153, 225, 0.3);
+        }
+        
+        .error-details {
+            margin-top: 20px;
+            text-align: left;
+        }
+        
+        .error-details summary {
+            cursor: pointer;
+            color: #4299e1;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .error-details pre {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            font-size: 0.9rem;
+            color: #4a5568;
+            overflow-x: auto;
+            white-space: pre-wrap;
         }
 
         @media (max-width: 768px) {

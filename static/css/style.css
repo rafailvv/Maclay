@@ -537,10 +537,11 @@ body {
 
 /* Segment Selector Styles */
 .segment-selector {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    display: flex;
+    flex-direction: row;
     gap: 15px;
     margin-top: 10px;
+    justify-content: center;
 }
 
 .segment-option {
@@ -565,6 +566,8 @@ body {
     background: white;
     position: relative;
     overflow: hidden;
+    flex: 1;
+    min-width: 200px;
 }
 
 .segment-label::before {
@@ -743,9 +746,8 @@ body {
 }
 
 .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
+    display: flex;
+    flex-direction: column;
 }
 
 .summary-item {
@@ -869,9 +871,10 @@ body {
     font-weight: 600;
 }
 
-/* Hide br tags in report content */
+/* Style br tags in report content */
 .report-content br {
-    display: none;
+    display: block;
+    margin: 0.5em 0;
 }
 
 .report-content h1 {
@@ -1199,13 +1202,14 @@ body {
     
     /* Mobile styles for segment selector */
     .segment-selector {
-        grid-template-columns: 1fr;
+        flex-direction: column;
         gap: 12px;
     }
     
     .segment-label {
         padding: 15px;
         gap: 12px;
+        min-width: auto;
     }
     
     .segment-icon {

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi import FastAPI, Request, Form, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,6 +13,9 @@ from config import config
 from database import init_database, get_db, ResearchReport, UserSession
 from services import ReportService, SessionManager
 from sqlalchemy.orm import Session
+import asyncio
+from typing import Dict, List, Any
+from research_stages import ResearchProcessor
 
 load_dotenv()
 
@@ -25,6 +28,37 @@ app = FastAPI(
 # Подключение статических файлов и шаблонов
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# WebSocket connection manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_message(self, client_id: str, message: dict):
+        print(f"📤 Отправляем сообщение клиенту {client_id}: {message}")
+        if client_id in self.active_connections:
+            try:
+                await self.active_connections[client_id].send_text(json.dumps(message))
+                print(f"✅ Сообщение отправлено клиенту {client_id}")
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                print(f"❌ Ошибка отправки сообщения клиенту {client_id}: {e}")
+                print(f"📋 Детали ошибки WebSocket:\n{error_details}")
+                self.disconnect(client_id)
+        else:
+            print(f"⚠️ Клиент {client_id} не найден в активных соединениях")
+            print(f"📋 Активные соединения: {list(self.active_connections.keys())}")
+
+manager = ConnectionManager()
 
 # Initialize database
 @app.on_event("startup")
@@ -104,6 +138,146 @@ async def process_product(
 
 @app.post("/generate-report")
 async def generate_report(request: Request, db: Session = Depends(get_db)):
+    """Generate report using improved multi-stage process"""
+    try:
+        # Get data from request
+        data = await request.json()
+        
+        # Extract research data
+        product_description = data.get('product_description', '')
+        segment = data.get('segment', '')
+        research_element = data.get('research_element', '')
+        product_characteristics = data.get('product_characteristics', '')
+        benchmarks = data.get('benchmarks', '')
+        required_players = data.get('required_players', '')
+        required_countries = data.get('required_countries', '')
+        
+        # Determine research type
+        research_type = "feature" if research_element else "product"
+        
+        # Create research data dict
+        research_data = {
+            "product_description": product_description,
+            "segment": segment,
+            "research_element": research_element,
+            "product_characteristics": product_characteristics,
+            "benchmarks": benchmarks,
+            "required_players": required_players,
+            "required_countries": required_countries
+        }
+        
+        # Get client ID from request or generate new one
+        client_id = data.get('client_id', str(uuid.uuid4()))
+        
+        print(f"🔗 Используем client_id: {client_id}")
+        
+        # Start research processing in background
+        asyncio.create_task(process_research_background(research_data, research_type, client_id, db))
+        
+        return {
+            "success": True,
+            "client_id": client_id,
+            "message": "Исследование запущено"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Ошибка при запуске исследования"
+        }
+
+async def process_research_background(research_data: Dict[str, Any], research_type: str, client_id: str, db: Session):
+    """Process research in background with real-time updates"""
+    try:
+        print(f"🚀 Запускаем фоновое исследование для клиента {client_id}")
+        
+        # Initialize research processor
+        processor = ResearchProcessor(config, manager, client_id)
+        
+        # Process research without timeout
+        result = await processor.process_research(research_data, research_type)
+        
+        if result["success"]:
+            # Save report to database
+            report_service = ReportService(db)
+            
+            # Generate session ID
+            session_id = str(uuid.uuid4())
+            
+            # Create report
+            if research_type == "feature":
+                title = f"Исследование фичи: {research_data.get('research_element', '')[:50]}..."
+                report = report_service.create_report(
+                    title=title,
+                    content=result["report"],
+                    research_type="feature",
+                    product_description=research_data.get('product_description', ''),
+                    segment=research_data.get('segment', ''),
+                    research_element=research_data.get('research_element', ''),
+                    benchmarks=research_data.get('benchmarks', ''),
+                    required_players=research_data.get('required_players', ''),
+                    required_countries=research_data.get('required_countries', ''),
+                    session_id=session_id,
+                    ai_model=config.GEMINI_MODEL,
+                    processing_time=120,  # 2 minutes
+                    tokens_used=len(result["report"].split()) * 1.3  # Approximate
+                )
+            else:  # product research
+                title = f"Исследование продукта: {research_data.get('product_characteristics', '')[:50]}..."
+                report = report_service.create_report(
+                    title=title,
+                    content=result["report"],
+                    research_type="product",
+                    product_description=research_data.get('product_description', ''),
+                    segment=research_data.get('segment', ''),
+                    research_element=research_data.get('product_characteristics', ''),
+                    benchmarks="",
+                    required_players=research_data.get('required_players', ''),
+                    required_countries=research_data.get('required_countries', ''),
+                    session_id=session_id,
+                    ai_model=config.GEMINI_MODEL,
+                    processing_time=120,
+                    tokens_used=len(result["report"].split()) * 1.3
+                )
+            
+            # Send completion message
+            await manager.send_message(client_id, {
+                "type": "completion",
+                "success": True,
+                "report_id": report.id,
+                "message": "Исследование завершено успешно",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+        else:
+            # Send error message
+            await manager.send_message(client_id, {
+                "type": "completion",
+                "success": False,
+                "error": result.get("error", "Неизвестная ошибка"),
+                "message": "Ошибка при выполнении исследования",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Критическая ошибка в фоновом исследовании: {str(e)}")
+        print(f"📋 Детали критической ошибки:\n{error_details}")
+        
+        # Send error message
+        await manager.send_message(client_id, {
+            "type": "completion",
+            "success": False,
+            "error": str(e),
+            "error_details": error_details,
+            "message": "Критическая ошибка при выполнении исследования",
+            "timestamp": datetime.now().isoformat()
+        })
+
+@app.post("/generate-report-old")
+async def generate_report_old(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     
     # Извлекаем данные из запроса
@@ -149,7 +323,15 @@ async def generate_report(request: Request, db: Session = Depends(get_db)):
 - Карточки приложений в App Store / Google Play (описания, скриншоты, отзывы).
 - Профильные медиа/новости, тех-блоги компаний.
 - Другие релевантные источники.
-На каждый факт давай ссылку. Если данные спорные — пометь «(требует верификации)».
+
+КРИТИЧЕСКИ ВАЖНО ДЛЯ ССЫЛОК:
+- Используй ТОЛЬКО проверенные и доступные ссылки
+- Проверяй актуальность каждой ссылки перед включением
+- Предпочитай официальные источники (сайты компаний, документация)
+- Избегай ссылок на временные или устаревшие страницы
+- Если ссылка недоступна или сомнительна - НЕ включай её
+- Лучше меньше ссылок, но все должны быть рабочими
+- На каждый факт давай ссылку. Если данные спорные — пометь «(требует верификации)».
 
 Метод
 
@@ -200,6 +382,14 @@ Mapping к нашим целям/метрикам: какие north-star/под�
 Все факты — с активными ссылками на первоисточники.
 
 Даты релизов/обновлений указывать в каждом кейсе.
+
+ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ К ССЫЛКАМ:
+- Каждая ссылка должна быть проверена на доступность
+- Предпочитай официальные источники (сайты компаний, документация)
+- Избегай ссылок на временные страницы, блоги с неопределенным статусом
+- Если ссылка сомнительна - лучше не включать её вообще
+- Лучше меньше ссылок, но все должны быть рабочими и релевантными
+- Проверяй актуальность ссылок
 
 Не использовать непроверяемые источники; если используешь обзоры/агрегаторы — обязательно находи первоисточник.
 
@@ -266,7 +456,15 @@ Mapping к нашим целям/метрикам: какие north-star/под�
 - Карточки приложений в App Store / Google Play (описания, скриншоты, отзывы).
 - Профильные медиа/новости, тех-блоги компаний.
 - Другие релевантные источники.
-На каждый факт давай ссылку. Если данные спорные — пометь «(требует верификации)».
+
+КРИТИЧЕСКИ ВАЖНО ДЛЯ ССЫЛОК:
+- Используй ТОЛЬКО проверенные и доступные ссылки
+- Проверяй актуальность каждой ссылки перед включением
+- Предпочитай официальные источники (сайты компаний, документация)
+- Избегай ссылок на временные или устаревшие страницы
+- Если ссылка недоступна или сомнительна - НЕ включай её
+- Лучше меньше ссылок, но все должны быть рабочими
+- На каждый факт давай ссылку. Если данные спорные — пометь «(требует верификации)».
 
 Метод
 
@@ -318,6 +516,14 @@ Mapping к нашим целям/метрикам: какие north-star/под�
 
 Даты релизов/обновлений указывать в каждом кейсе.
 
+ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ К ССЫЛКАМ:
+- Каждая ссылка должна быть проверена на доступность
+- Предпочитай официальные источники (сайты компаний, документация)
+- Избегай ссылок на временные страницы, блоги с неопределенным статусом
+- Если ссылка сомнительна - лучше не включать её вообще
+- Лучше меньше ссылок, но все должны быть рабочими и релевантными
+- Проверяй актуальность ссылок (не старше 2 лет для большинства источников)
+
 Не использовать непроверяемые источники; если используешь обзоры/агрегаторы — обязательно находи первоисточник.
 
 Отмечай гео-ограничения продуктов (доступность по странам/рынкам). 
@@ -357,30 +563,37 @@ Mapping к нашим целям/метрикам: какие north-star/под�
 Ясные формулировки, избегай жаргона.
 """
 
-    # Отправляем запрос к Mistral API
-    async with httpx.AsyncClient(timeout=config.REPORT_TIMEOUT) as client:
+    # Отправляем запрос к Gemini API
+    async with httpx.AsyncClient(timeout=600.0) as client:  # 10 minutes for HTTP requests
         response = await client.post(
-            config.MISTRAL_API_URL,
+            config.GEMINI_API_URL,
             headers={
-                "Authorization": f"Bearer {config.MISTRAL_API_KEY}",
                 "Content-Type": "application/json"
             },
+            params={
+                "key": config.GEMINI_API_KEY
+            },
             json={
-                "model": config.MISTRAL_MODEL,
-                "messages": [
+                "contents": [
                     {
-                        "role": "user",
-                        "content": prompt
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
                     }
                 ],
-                "max_tokens": 4000,
-                "temperature": 0.7
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "topP": 0.8,
+                    "topK": 40
+                }
             }
         )
         
         if response.status_code == 200:
             result = response.json()
-            report_content = result["choices"][0]["message"]["content"]
+            report_content = result["candidates"][0]["content"]["parts"][0]["text"]
             
             # Сохраняем отчет в базу данных
             report_service = ReportService(db)
@@ -408,7 +621,7 @@ Mapping к нашим целям/метрикам: какие north-star/под�
                     required_players=required_players,
                     required_countries=required_countries,
                     session_id=session_id,
-                    ai_model=config.MISTRAL_MODEL,
+                    ai_model=config.GEMINI_MODEL,
                     processing_time=30,  # Примерное время
                     tokens_used=len(report_content.split())  # Примерное количество токенов
                 )
@@ -425,7 +638,7 @@ Mapping к нашим целям/метрикам: какие north-star/под�
                     required_players=required_players,
                     required_countries=required_countries,
                     session_id=session_id,
-                    ai_model=config.MISTRAL_MODEL,
+                    ai_model=config.GEMINI_MODEL,
                     processing_time=30,  # Примерное время
                     tokens_used=len(report_content.split())  # Примерное количество токенов
                 )
@@ -442,6 +655,33 @@ Mapping к нашим целям/метрикам: какие north-star/под�
                 "error": f"API Error: {response.status_code}",
                 "message": "Ошибка при генерации отчета"
             }
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    print(f"🔌 WebSocket подключение для клиента: {client_id}")
+    await manager.connect(websocket, client_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print(f"📨 Получено сообщение от {client_id}: {data}")
+            # Handle incoming messages if needed
+    except WebSocketDisconnect:
+        print(f"🔌 WebSocket отключение для клиента: {client_id}")
+        manager.disconnect(client_id)
+
+@app.get("/status/{client_id}")
+async def check_status(client_id: str):
+    """Check status of research process"""
+    if client_id in manager.active_connections:
+        return {
+            "status": "active",
+            "message": "Исследование в процессе"
+        }
+    else:
+        return {
+            "status": "inactive", 
+            "message": "Соединение потеряно"
+        }
 
 @app.get("/results", response_class=HTMLResponse)
 async def results_page(request: Request, report_id: int = None, db: Session = Depends(get_db)):
@@ -542,4 +782,4 @@ async def export_pdf(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=80)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
