@@ -286,6 +286,9 @@ class ResearchProcessor:
         # Send countries update
         await self.send_update("link_verification", "active", 98, f"Найдено {countries_count} уникальных стран")
         
+        # Send sources update
+        await self.send_update("link_verification", "active", 99, f"Найдено {total_links} источников")
+        
         # Print final summary
         print(f"📈 ИТОГИ ПРОВЕРКИ ССЫЛОК:")
         print(f"   Всего кейсов: {total_cases}")

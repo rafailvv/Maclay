@@ -382,14 +382,16 @@
                 const casesMatch = data.message.match(/(\d+)\s*кейс/i);
                 if (casesMatch) {
                     researchStats.casesFound = parseInt(casesMatch[1]);
+                    console.log('📊 Обновлено количество кейсов:', researchStats.casesFound);
                 }
             }
             
             if (data.stage === 'link_verification' && data.message) {
-                // Extract numbers from messages like "Проверено 15 ссылок"
-                const sourcesMatch = data.message.match(/(\d+)\s*ссылок/i);
+                // Extract numbers from messages like "Найдено 15 источников"
+                const sourcesMatch = data.message.match(/(\d+)\s*источников/i);
                 if (sourcesMatch) {
                     researchStats.sourcesFound = parseInt(sourcesMatch[1]);
+                    console.log('📊 Обновлено количество источников:', researchStats.sourcesFound);
                 }
                 
                 // Extract countries count from messages like "Найдено 3 уникальных стран"
@@ -400,11 +402,11 @@
                 }
             }
             
-            // Count countries from research data - this will be updated from actual cases
-            // Initial count from required countries
-            if (window.researchData && window.researchData.required_countries) {
+            // Initialize countries count from research data only if not already set
+            if (window.researchData && window.researchData.required_countries && !researchStats.countriesFound) {
                 const countries = window.researchData.required_countries.split(',').map(c => c.trim()).filter(c => c);
                 researchStats.countriesFound = countries.length;
+                console.log('🌍 Инициализировано количество стран из запроса:', researchStats.countriesFound);
             }
         }
         
