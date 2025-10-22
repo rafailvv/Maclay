@@ -95,6 +95,18 @@ class ResearchProcessor:
         
         return cleaned_content
     
+    def get_available_pdf_files(self) -> List[str]:
+        """Get list of available PDF files in data directory"""
+        try:
+            pdf_files = []
+            for name in os.listdir(self.config.DATA_DIR):
+                if name.lower().endswith(".pdf"):
+                    pdf_files.append(name)
+            return pdf_files
+        except Exception as e:
+            print(f"⚠️ Ошибка получения списка PDF файлов: {e}")
+            return []
+    
     async def process_research(self, research_data: Dict[str, Any], research_type: str) -> Dict[str, Any]:
         """Process research through all stages"""
         try:
@@ -560,11 +572,22 @@ class ResearchProcessor:
         else:
             context["focus"] = research_data.get('product_characteristics', '')
 
+        # Get list of actual PDF files that exist
+        actual_files = []
+        try:
+            for name in os.listdir(self.config.DATA_DIR):
+                if name.lower().endswith(".pdf"):
+                    actual_files.append(name)
+        except Exception:
+            actual_files = []
+
         return (
             "Ты — аналитик. Проанализируй локальные PDF-документы и извлеки ТОЛЬКО релевантные факты по исследованию.\n"
             "Верни результат в строго валидном JSON-массиве объектов без пояснений. Схема объекта:\n"
             "{\"source_file\": str, \"section\": str, \"fact\": str, \"metrics\": str|null, \"date\": str|null, \"links\": [str]}\n"
-            "Правила: коротко, по делу; добавляй ссылки если явно указаны в тексте; игнорируй нерелевантное.\n\n"
+            "Правила: коротко, по делу; добавляй ссылки если явно указаны в тексте; игнорируй нерелевантное.\n"
+            f"ВАЖНО: Используй ТОЛЬКО эти существующие PDF файлы: {', '.join(actual_files)}\n"
+            f"НЕ создавай ссылки на несуществующие файлы!\n\n"
             f"КОНТЕКСТ ИССЛЕДОВАНИЯ: {json.dumps(context, ensure_ascii=False)}\n\n"
             f"ИСТОЧНИКИ: {json.dumps(files_payload[:3], ensure_ascii=False) if len(files_payload)>3 else json.dumps(files_payload, ensure_ascii=False)}\n\n"
             "Верни только JSON без маркировок."
@@ -689,6 +712,10 @@ class ResearchProcessor:
     
     def get_report_generation_prompt(self, cases: List[Dict[str, Any]], research_data: Dict[str, Any], research_type: str) -> str:
         """Get prompt for final report generation"""
+        # Get list of available PDF files
+        available_files = self.get_available_pdf_files()
+        files_list = ", ".join(available_files) if available_files else "нет доступных файлов"
+        
         if research_type == "feature":
             return f"""
 Ты — старший аналитик по финтеху. Создай финальный отчет на основе проанализированных кейсов.
@@ -703,10 +730,14 @@ class ResearchProcessor:
 
 ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
 
+ДОСТУПНЫЕ PDF ФАЙЛЫ: {files_list}
+
 КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
 1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
    - [Название факта]({self.config.BASE_URL}/data/имя_файла.pdf)
 2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
+3. ВАЖНО: Используй ТОЛЬКО существующие PDF файлы из папки data/
+4. НЕ создавай ссылки на несуществующие файлы!
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
@@ -771,10 +802,14 @@ class ResearchProcessor:
 
 ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
 
+ДОСТУПНЫЕ PDF ФАЙЛЫ: {files_list}
+
 КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
 1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
    - [Название факта]({self.config.BASE_URL}/data/имя_файла.pdf)
 2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
+3. ВАЖНО: Используй ТОЛЬКО существующие PDF файлы из папки data/
+4. НЕ создавай ссылки на несуществующие файлы!
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
@@ -841,8 +876,16 @@ class ResearchProcessor:
                     if not isinstance(item, dict):
                         continue
                     source_file = item.get("source_file") or item.get("source") or "unknown.pdf"
-                    # Create download link for the PDF file
-                    download_link = f"{self.config.BASE_URL}/data/{source_file}"
+                    
+                    # Check if file actually exists before creating link
+                    file_path = os.path.join(self.config.DATA_DIR, source_file)
+                    if os.path.exists(file_path):
+                        download_link = f"{self.config.BASE_URL}/data/{source_file}"
+                    else:
+                        # Don't create link for non-existent files
+                        download_link = None
+                        print(f"⚠️ PDF файл не найден: {source_file}")
+                    
                     norm.append({
                         "source_file": source_file,
                         "download_link": download_link,
@@ -863,7 +906,7 @@ class ResearchProcessor:
                 continue
             insights.append({
                 "source_file": "unknown.pdf",
-                "download_link": f"{self.config.BASE_URL}/data/unknown.pdf",
+                "download_link": None,  # Don't create link for unknown files
                 "section": "",
                 "fact": line,
                 "metrics": None,
