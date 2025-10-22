@@ -800,7 +800,16 @@ async def export_pdf(request: Request):
         "message": "PDF экспорт будет реализован",
         "content": report_content
     }
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        host="127.0.0.1",  # за Nginx лучше слушать только loopback
+        port=8000,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        ws="websockets",
+        ws_ping_interval=20,
+        ws_ping_timeout=20,
+        # ВАЖНО: пока держите один воркер (через run это всегда 1)
+    )
