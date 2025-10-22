@@ -788,6 +788,31 @@ async def delete_report(report_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Report deleted successfully"}
 
+@app.get("/data/{filename}")
+async def download_pdf(filename: str):
+    """Скачать PDF файл из папки data"""
+    import os
+    from pathlib import Path
+    
+    # Безопасность: проверяем, что файл существует и это PDF
+    if not filename.endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+    
+    file_path = Path(config.DATA_DIR) / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Проверяем, что файл находится в разрешенной директории
+    if not file_path.resolve().is_relative_to(Path(config.DATA_DIR).resolve()):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type='application/pdf'
+    )
+
 @app.post("/export-pdf")
 async def export_pdf(request: Request):
     data = await request.json()

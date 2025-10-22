@@ -33,6 +33,9 @@ class Config:
     # Report Configuration
     MAX_REPORT_LENGTH = 50000  # Максимальная длина отчета
     
+    # Local Data Directory
+    DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+    
     @classmethod
     def validate_config(cls):
         """Проверяет корректность конфигурации"""
@@ -43,6 +46,10 @@ class Config:
         
         if cls.PORT < 1 or cls.PORT > 65535:
             errors.append("Некорректный порт. Должен быть от 1 до 65535")
+        
+        # Validate local data directory exists
+        if not os.path.isdir(cls.DATA_DIR):
+            errors.append(f"Каталог с локальными документами не найден: {cls.DATA_DIR}")
         
         return errors
 

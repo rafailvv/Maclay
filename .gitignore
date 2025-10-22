@@ -85,7 +85,6 @@ cython_debug/
 *.db
 *.sqlite
 *.sqlite3
-data/
 *.db-journal
 
 # Logs
@@ -177,7 +176,6 @@ Thumbs.db
 uploads/
 static/uploads/
 media/
-*.pdf
 reports/
 exports/
 

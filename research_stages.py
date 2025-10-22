@@ -5,6 +5,10 @@ Research stages and prompts for AI Research Assistant
 import asyncio
 import httpx
 from typing import Dict, List, Any
+import os
+import json
+import re
+import pdfplumber
 import json
 from datetime import datetime
 
@@ -88,6 +92,13 @@ class ResearchProcessor:
             market_data = await self.collect_market_data(research_data, research_type)
             print(f"✅ Данные собраны: {len(market_data.get('companies', []))} компаний")
             
+            # Stage 1.5: Local Documents Insights
+            print("📚 Этап 1.5: Локальные документы (PDF)")
+            await self.send_update("local_documents", "active", 0, "Ищем инсайты в локальных PDF...")
+            local_insights = await self.collect_local_documents_insights(research_data, research_type)
+            market_data["local_insights"] = local_insights or {"insights": [], "files": []}
+            print(f"✅ Локальные инсайты: {len(market_data['local_insights'].get('insights', []))} фактов из {len(market_data['local_insights'].get('files', []))} файлов")
+            
             # Stage 2: Case Analysis
             print("🔍 Этап 2: Анализ кейсов")
             await self.send_update("case_analysis", "active", 0, "Анализируем кейсы...")
@@ -109,7 +120,7 @@ class ResearchProcessor:
             return {
                 "success": True,
                 "report": report,
-                "stages_completed": 4
+                "stages_completed": 5
             }
             
         except Exception as e:
@@ -143,7 +154,7 @@ class ResearchProcessor:
         
         await self.send_update("data_collection", "active", 30, "Отправляем запрос к ИИ...")
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=270.0) as client:
             await self.send_update("data_collection", "active", 40, "Выполняем HTTP запрос...")
             api_url = f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent"
             print(f"🌐 Отправляем запрос к {api_url}")
@@ -183,6 +194,130 @@ class ResearchProcessor:
                 print(f"❌ {error_msg}")
                 await self.send_update("data_collection", "error", 0, error_msg)
                 raise Exception(error_msg)
+
+    async def collect_local_documents_insights(self, research_data: Dict[str, Any], research_type: str) -> Dict[str, Any]:
+        """Stage 1.5: Extract and summarize insights from local PDFs with retry"""
+        return await self._execute_with_retry(
+            self._collect_local_documents_insights_internal,
+            research_data,
+            research_type,
+            stage_name="local_documents",
+            stage_description="обработки локальных PDF"
+        )
+
+    def _read_pdf_text(self, file_path: str, max_chars: int = 20000) -> str:
+        """Extract text from a PDF file with a character cap for efficiency"""
+        text_parts: List[str] = []
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    if page_text:
+                        text_parts.append(page_text)
+                    if sum(len(p) for p in text_parts) >= max_chars:
+                        break
+        except Exception as e:
+            print(f"⚠️ Ошибка чтения PDF {file_path}: {e}")
+        text = "\n".join(text_parts)
+        # Normalize excessive whitespace
+        text = re.sub(r"\s+", " ", text)
+        return text[:max_chars]
+
+    async def _collect_local_documents_insights_internal(self, research_data: Dict[str, Any], research_type: str) -> Dict[str, Any]:
+        await self.send_update("local_documents", "active", 5, "Сканируем каталог с PDF...")
+        data_dir = self.config.DATA_DIR
+        pdf_files = []
+        try:
+            for name in os.listdir(data_dir):
+                if name.lower().endswith(".pdf"):
+                    pdf_files.append(os.path.join(data_dir, name))
+        except Exception as e:
+            await self.send_update("local_documents", "error", 0, f"Ошибка доступа к каталогу: {e}")
+            return {"insights": [], "files": []}
+
+        if not pdf_files:
+            await self.send_update("local_documents", "completed", 100, "PDF не найдены")
+            return {"insights": [], "files": []}
+
+        await self.send_update("local_documents", "active", 10, f"Найдено документов: {len(pdf_files)}. Извлекаем текст...")
+        files_payload: List[Dict[str, Any]] = []
+        total_chars = 0
+        
+        # Process each PDF file with progress updates
+        for i, f in enumerate(pdf_files):
+            progress = int((i / len(pdf_files)) * 40) + 10  # 10-50%
+            await self.send_update("local_documents", "active", progress, 
+                                 f"Обрабатываем документ {i+1}/{len(pdf_files)}")
+            
+            print(f"📄 Обрабатываем PDF {i+1}/{len(pdf_files)}: {os.path.basename(f)}")
+            
+            text = self._read_pdf_text(f, max_chars=18000)
+            total_chars += len(text)
+            files_payload.append({
+                "file": os.path.basename(f),
+                "excerpt": text
+            })
+            
+            print(f"📊 PDF {i+1}: извлечено {len(text)} символов")
+            
+            # Small delay to show progress
+            await asyncio.sleep(0.2)
+        
+        await self.send_update("local_documents", "active", 55, f"Текст извлечен из {len(files_payload)} документов")
+
+        prompt = self.get_local_documents_prompt(files_payload, research_data, research_type)
+        await self.send_update("local_documents", "active", 65, "Анализируем содержимое документов...")
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            await self.send_update("local_documents", "active", 70, "Отправляем запрос к ИИ...")
+            response = await client.post(
+                f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.config.GEMINI_API_KEY
+                },
+                json={
+                    "contents": [{
+                        "parts": [{"text": prompt}]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.2
+                    }
+                }
+            )
+
+        if response.status_code != 200:
+            await self.send_update("local_documents", "error", 0, f"API Error: {response.status_code}")
+            return {"insights": [], "files": [f["file"] for f in files_payload]}
+
+        await self.send_update("local_documents", "active", 85, "Обрабатываем ответ ИИ...")
+        result = response.json()
+        content = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        
+        await self.send_update("local_documents", "active", 90, "Извлекаем структурированные инсайты...")
+        insights = self.parse_local_insights(content)
+        
+        # Count insights by source file
+        insights_by_file = {}
+        for insight in insights:
+            source_file = insight.get("source_file", "unknown.pdf")
+            if source_file not in insights_by_file:
+                insights_by_file[source_file] = 0
+            insights_by_file[source_file] += 1
+        
+        # Create summary message without specific file names
+        summary = f"Найдено {len(insights)} инсайтов из {len(files_payload)} документов"
+        
+        await self.send_update("local_documents", "completed", 100, summary)
+        
+        print(f"📈 ИТОГИ ОБРАБОТКИ PDF:")
+        print(f"   Всего файлов: {len(files_payload)}")
+        print(f"   Всего символов: {total_chars}")
+        print(f"   Найдено инсайтов: {len(insights)}")
+        for file, count in insights_by_file.items():
+            print(f"   {file}: {count} инсайтов")
+        
+        return {"insights": insights, "files": [f["file"] for f in files_payload]}
     
     async def analyze_cases(self, market_data: Dict[str, Any], research_data: Dict[str, Any], research_type: str) -> List[Dict[str, Any]]:
         """Stage 2: Analyze cases with retry mechanism"""
@@ -203,7 +338,7 @@ class ResearchProcessor:
         
         await self.send_update("case_analysis", "active", 30, "Отправляем запрос на анализ...")
         
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=270.0) as client:
             response = await client.post(
                 f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
                 headers={
@@ -489,11 +624,23 @@ https://linkedin.com/company/example
                 
                 report_content = self.extract_report_content(result)
                 
-                # Don't add verification summary - user doesn't want it
+                # Enhance report with additional links
+                await self.send_update("report_generation", "active", 95, "Добавляем дополнительные ссылки...")
+                enhanced_report = await self.enhance_report_with_links(report_content, cases, research_data, research_type)
                 
-                await self.send_update("report_generation", "completed", 100, "Отчет готов!")
+                # Verify all links in the final report
+                await self.send_update("report_generation", "active", 98, "Проверяем все ссылки в отчете...")
+                final_report = await self.verify_report_links(enhanced_report)
                 
-                return report_content
+                # Final report length check
+                print(f"📊 ФИНАЛЬНЫЙ ОТЧЕТ:")
+                print(f"   Длина отчета: {len(final_report)} символов")
+                print(f"   Количество абзацев: {final_report.count(chr(10)) + 1}")
+                print(f"   Количество ссылок: {final_report.count('[')}")
+                
+                await self.send_update("report_generation", "completed", 100, f"Отчет готов! ({len(final_report)} символов)")
+                
+                return final_report
             else:
                 raise Exception(f"API Error: {response.status_code}")
     
@@ -596,6 +743,28 @@ https://linkedin.com/company/example
 Структурированный список продуктов с базовой информацией.
 """
     
+    def get_local_documents_prompt(self, files_payload: List[Dict[str, Any]], research_data: Dict[str, Any], research_type: str) -> str:
+        """Prompt for summarizing local PDF documents into structured insights (JSON)."""
+        context = {
+            "research_type": research_type,
+            "product_description": research_data.get('product_description', ''),
+            "segment": research_data.get('segment', ''),
+        }
+        if research_type == "feature":
+            context["focus"] = research_data.get('research_element', '')
+        else:
+            context["focus"] = research_data.get('product_characteristics', '')
+
+        return (
+            "Ты — аналитик. Проанализируй локальные PDF-документы и извлеки ТОЛЬКО релевантные факты по исследованию.\n"
+            "Верни результат в строго валидном JSON-массиве объектов без пояснений. Схема объекта:\n"
+            "{\"source_file\": str, \"section\": str, \"fact\": str, \"metrics\": str|null, \"date\": str|null, \"links\": [str]}\n"
+            "Правила: коротко, по делу; добавляй ссылки если явно указаны в тексте; игнорируй нерелевантное.\n\n"
+            f"КОНТЕКСТ ИССЛЕДОВАНИЯ: {json.dumps(context, ensure_ascii=False)}\n\n"
+            f"ИСТОЧНИКИ: {json.dumps(files_payload[:3], ensure_ascii=False) if len(files_payload)>3 else json.dumps(files_payload, ensure_ascii=False)}\n\n"
+            "Верни только JSON без маркировок."
+        )
+
     def get_case_analysis_prompt(self, market_data: Dict[str, Any], research_data: Dict[str, Any], research_type: str) -> str:
         """Get prompt for case analysis stage"""
         if research_type == "feature":
@@ -609,6 +778,9 @@ https://linkedin.com/company/example
 - Продукт: {research_data.get('product_description', '')}
 - Сегмент: {research_data.get('segment', '')}
 - Элемент: {research_data.get('research_element', '')}
+
+ЛОКАЛЬНЫЕ ИНСАЙТЫ ИЗ PDF:
+{json.dumps(market_data.get('local_insights', {}), ensure_ascii=False, indent=2)}
 
 КРИТИЧЕСКИ ВАЖНО - МАКСИМАЛЬНОЕ КОЛИЧЕСТВО ССЫЛОК:
 1. Для КАЖДОГО кейса найди МИНИМУМ 5-7 ПОДТВЕРЖДАЮЩИХ ССЫЛОК
@@ -670,6 +842,9 @@ https://linkedin.com/company/example
 - Сегмент: {research_data.get('segment', '')}
 - Характеристики: {research_data.get('product_characteristics', '')}
 
+ЛОКАЛЬНЫЕ ИНСАЙТЫ ИЗ PDF:
+{json.dumps(market_data.get('local_insights', {}), ensure_ascii=False, indent=2)}
+
 ЗАДАЧА:
 Создай 10-12 детальных кейсов продуктов по шаблону:
 
@@ -720,6 +895,17 @@ https://linkedin.com/company/example
 - Продукт: {research_data.get('product_description', '')}
 - Сегмент: {research_data.get('segment', '')}
 - Элемент: {research_data.get('research_element', '')}
+
+ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
+
+КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ВСЕ ИСТОЧНИКИ:
+1. Для КАЖДОГО факта, упоминания компании или продукта добавляй активные ссылки
+2. Если в кейсах есть проверенные ссылки (verified_links) - используй их
+3. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
+   - [Название факта](http://maclay.pro/data/имя_файла.pdf)
+4. Для всех остальных фактов ищи и добавляй релевантные интернет-ссылки
+5. Каждый абзац должен содержать минимум 2-3 активные ссылки
+6. Ссылки должны быть релевантными и вести на официальные источники
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
@@ -782,6 +968,17 @@ https://linkedin.com/company/example
 - Сегмент: {research_data.get('segment', '')}
 - Характеристики: {research_data.get('product_characteristics', '')}
 
+ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
+
+КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ВСЕ ИСТОЧНИКИ:
+1. Для КАЖДОГО факта, упоминания компании или продукта добавляй активные ссылки
+2. Если в кейсах есть проверенные ссылки (verified_links) - используй их
+3. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
+   - [Название факта](http://maclay.pro/data/имя_файла.pdf)
+4. Для всех остальных фактов ищи и добавляй релевантные интернет-ссылки
+5. Каждый абзац должен содержать минимум 2-3 активные ссылки
+6. Ссылки должны быть релевантными и вести на официальные источники
+
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
 # Отчет по исследованию продукта: {research_data.get('product_characteristics', '')}
@@ -831,6 +1028,52 @@ https://linkedin.com/company/example
 - Только текстовый контент
 - МАКСИМАЛЬНОЕ количество ссылок в каждой таблице
 """
+
+    def parse_local_insights(self, content: str) -> List[Dict[str, Any]]:
+        """Parse JSON array of insights from model response; fallback to simple parsing"""
+        content_str = content.strip()
+        # Attempt to locate JSON array in the text
+        match = re.search(r"\[.*\]", content_str, re.DOTALL)
+        json_str = match.group(0) if match else content_str
+        try:
+            data = json.loads(json_str)
+            if isinstance(data, list):
+                # Normalize objects
+                norm = []
+                for item in data:
+                    if not isinstance(item, dict):
+                        continue
+                    source_file = item.get("source_file") or item.get("source") or "unknown.pdf"
+                    # Create download link for the PDF file
+                    download_link = f"http://maclay.pro/data/{source_file}"
+                    norm.append({
+                        "source_file": source_file,
+                        "download_link": download_link,
+                        "section": item.get("section") or "",
+                        "fact": item.get("fact") or "",
+                        "metrics": item.get("metrics") or None,
+                        "date": item.get("date") or None,
+                        "links": item.get("links") or []
+                    })
+                return norm
+        except Exception:
+            pass
+        # Fallback: extract lines starting with '-' or '*'
+        insights: List[Dict[str, Any]] = []
+        for line in content_str.split('\n'):
+            line = line.strip(" -•*")
+            if not line:
+                continue
+            insights.append({
+                "source_file": "unknown.pdf",
+                "download_link": "http://maclay.pro/data/unknown.pdf",
+                "section": "",
+                "fact": line,
+                "metrics": None,
+                "date": None,
+                "links": []
+            })
+        return insights
     
     def parse_market_data(self, api_response: Dict[str, Any], research_type: str) -> Dict[str, Any]:
         """Parse market data from API response"""
@@ -1003,3 +1246,161 @@ https://linkedin.com/company/example
                 return "Ошибка при генерации отчета"
         except Exception as e:
             return f"Ошибка при обработке ответа: {str(e)}"
+    
+    async def enhance_report_with_links(self, report_content: str, cases: List[Dict[str, Any]], research_data: Dict[str, Any], research_type: str) -> str:
+        """Enhance report with additional links from verified sources"""
+        try:
+            # Extract all verified links from cases
+            all_verified_links = []
+            for case in cases:
+                if "verified_links" in case:
+                    for link in case["verified_links"]:
+                        if link.get("status") == "working":
+                            all_verified_links.append({
+                                "url": link.get("url"),
+                                "company": case.get("title", case.get("company", "Unknown")),
+                                "context": case.get("description", "")
+                            })
+            
+            if not all_verified_links:
+                return report_content
+            
+            # Create prompt for link enhancement
+            # Use full report content, but limit to reasonable size for API
+            max_content_length = 15000  # Increased from 3000
+            report_preview = report_content[:max_content_length]
+            if len(report_content) > max_content_length:
+                report_preview += "\n\n[... остальная часть отчета ...]"
+            
+            prompt = f"""
+Ты — эксперт по добавлению ссылок в отчеты. Улучши отчет, добавив релевантные ссылки из проверенных источников.
+
+ОТЧЕТ ДЛЯ УЛУЧШЕНИЯ:
+{report_preview}
+
+ПРОВЕРЕННЫЕ ССЫЛКИ:
+{json.dumps(all_verified_links[:20], ensure_ascii=False, indent=2)}
+
+ЗАДАЧА:
+1. Найди в отчете упоминания компаний, продуктов или фактов
+2. Добавь к ним релевантные ссылки из списка проверенных источников
+3. Используй формат: [текст](ссылка)
+4. НЕ изменяй структуру отчета, только добавляй ссылки
+5. Максимум 3-5 ссылок на абзац
+6. Приоритет: официальные сайты > кейсы > новости
+7. ВАЖНО: Верни ПОЛНЫЙ отчет с добавленными ссылками, не обрезай его
+
+ВЕРНИ ПОЛНЫЙ УЛУЧШЕННЫЙ ОТЧЕТ С ДОБАВЛЕННЫМИ ССЫЛКАМИ.
+"""
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self.config.GEMINI_API_KEY
+                    },
+                    json={
+                        "contents": [{
+                            "parts": [{"text": prompt}]
+                        }],
+                        "generationConfig": {
+                            "temperature": 0.3
+                        }
+                    }
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    enhanced_content = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    
+                    if enhanced_content:
+                        print(f"📊 УЛУЧШЕНИЕ ОТЧЕТА:")
+                        print(f"   Исходная длина: {len(report_content)} символов")
+                        print(f"   Улучшенная длина: {len(enhanced_content)} символов")
+                        return enhanced_content
+                    else:
+                        print(f"⚠️ ИИ не вернул улучшенный отчет, используем исходный")
+                        return report_content
+                else:
+                    print(f"⚠️ Ошибка улучшения отчета: {response.status_code}")
+                    return report_content
+                    
+        except Exception as e:
+            print(f"⚠️ Ошибка при улучшении отчета: {str(e)}")
+            return report_content
+    
+    async def verify_report_links(self, report_content: str) -> str:
+        """Verify all links in the report and remove broken ones"""
+        try:
+            import re
+            
+            # Find all markdown links in the report
+            link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+            links = re.findall(link_pattern, report_content)
+            
+            if not links:
+                print("📋 Ссылки в отчете не найдены")
+                return report_content
+            
+            print(f"🔍 Найдено {len(links)} ссылок в отчете для проверки")
+            
+            verified_links = []
+            broken_links = []
+            
+            # Check each link
+            for i, (text, url) in enumerate(links):
+                print(f"🔗 Проверяем ссылку {i+1}/{len(links)}: {url}")
+                
+                try:
+                    # Skip PDF links to our domain - they should work
+                    if url.startswith('http://maclay.pro/data/'):
+                        verified_links.append((text, url))
+                        print(f"✅ PDF ссылка пропущена: {url}")
+                        continue
+                    
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        response = await client.head(url, follow_redirects=True)
+                        if response.status_code < 400:
+                            verified_links.append((text, url))
+                            print(f"✅ Ссылка работает: {response.status_code}")
+                        else:
+                            broken_links.append((text, url))
+                            print(f"❌ Ссылка не работает: {response.status_code}, удаляем")
+                            
+                except Exception as e:
+                    broken_links.append((text, url))
+                    print(f"⚠️ Ошибка проверки ссылки: {str(e)}, удаляем")
+            
+            # Remove broken links from report
+            if broken_links:
+                print(f"🗑️ Удаляем {len(broken_links)} нерабочих ссылок")
+                for text, url in broken_links:
+                    # Remove the broken link, keep only the text
+                    report_content = report_content.replace(f"[{text}]({url})", text)
+            
+            # Replace original links with verified alternatives
+            for text, url in verified_links:
+                # Find and replace the original link with the verified one
+                original_pattern = f"[{text}]("
+                if original_pattern in report_content:
+                    # Find the original link and replace it
+                    import re
+                    pattern = f"\\[{re.escape(text)}\\]\\([^)]+\\)"
+                    replacement = f"[{text}]({url})"
+                    report_content = re.sub(pattern, replacement, report_content)
+            
+            print(f"📊 ИТОГИ ПРОВЕРКИ ССЫЛОК В ОТЧЕТЕ:")
+            print(f"   Всего ссылок: {len(links)}")
+            print(f"   Рабочих ссылок: {len(verified_links)}")
+            print(f"   Нерабочих ссылок: {len(broken_links)}")
+            if len(links) > 0:
+                percentage = (len(verified_links) / len(links)) * 100
+                print(f"   Процент рабочих: {percentage:.1f}%")
+            
+            return report_content
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка при проверке ссылок в отчете: {str(e)}")
+            return report_content
+    
