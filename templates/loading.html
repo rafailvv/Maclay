@@ -333,11 +333,18 @@
             // Generate client ID
             clientId = 'client_' + Math.random().toString(36).substr(2, 9);
             
-            // Connect to WebSocket
-            ws = new WebSocket(`ws://${window.location.host}/ws/${clientId}`);
+            // Connect to WebSocket with automatic protocol selection
+            const proto = window.location.protocol === "https:" ? "wss" : "ws";
+            const host = window.location.host;
+            const wsUrl = `${proto}://${host}/ws/${encodeURIComponent(clientId)}`;
+            console.log('🔌 Подключаемся к WebSocket:', wsUrl);
+            
+            ws = new WebSocket(wsUrl);
             
             ws.onopen = function(event) {
-                console.log('WebSocket connected');
+                console.log('✅ WebSocket connected successfully');
+                console.log('🔌 WebSocket URL:', wsUrl);
+                console.log('🆔 Client ID:', clientId);
             };
             
             ws.onmessage = function(event) {
@@ -346,11 +353,16 @@
             };
             
             ws.onclose = function(event) {
-                console.log('WebSocket disconnected');
+                console.log('🔌 WebSocket disconnected');
+                console.log('📊 Close code:', event.code);
+                console.log('📊 Close reason:', event.reason);
+                console.log('📊 Was clean:', event.wasClean);
             };
             
             ws.onerror = function(error) {
-                console.error('WebSocket error:', error);
+                console.error('❌ WebSocket error:', error);
+                console.error('🔌 WebSocket URL:', wsUrl);
+                console.error('🆔 Client ID:', clientId);
             };
         }
 
