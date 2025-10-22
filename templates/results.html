@@ -154,6 +154,10 @@
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                     .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
                     .replace(/^\*\s*/gm, '')
+                    // Remove standalone single asterisks
+                    .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
+                    // Remove asterisks after colons (like "Оценка сложности:* Средняя")
+                    .replace(/:\*\s*/g, ': ')
                     // Lists
                     .replace(/^•\s*(.+)$/gm, '<li>$1</li>')
                     .replace(/^(\d+)\.\s*(.+)$/gm, '<li>$2</li>');
@@ -191,6 +195,10 @@
                 .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
                 // Remove single asterisks at the beginning of lines
                 .replace(/^\*\s*/gm, '')
+                // Remove standalone single asterisks (not part of bold formatting)
+                .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
+                // Remove asterisks after colons (like "Оценка сложности:* Средняя")
+                .replace(/:\*\s*/g, ': ')
                 // Links - improved formatting (avoid double processing)
                 .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>')
                 .replace(/(?<!href=")(https?:\/\/[^\s<>"\)\]]+)(?![^<]*<\/a>)/g, function(match) {

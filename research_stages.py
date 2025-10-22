@@ -80,6 +80,21 @@ class ResearchProcessor:
         # If all retries failed, raise the last exception
         raise last_exception
     
+    def clean_report_content(self, content: str) -> str:
+        """Clean report content by removing standalone single asterisks"""
+        if not content:
+            return content
+        
+        # Remove standalone single asterisks (not part of bold formatting)
+        # This regex looks for single asterisks that are not part of **bold** or *italic* formatting
+        import re
+        cleaned_content = re.sub(r'(?<!\*)\*(?!\*)(?![^*]*\*)', '', content)
+        
+        # Remove asterisks after colons (like "Оценка сложности:* Средняя")
+        cleaned_content = re.sub(r':\*\s*', ': ', cleaned_content)
+        
+        return cleaned_content
+    
     async def process_research(self, research_data: Dict[str, Any], research_type: str) -> Dict[str, Any]:
         """Process research through all stages"""
         try:
@@ -105,21 +120,21 @@ class ResearchProcessor:
             cases = await self.analyze_cases(market_data, research_data, research_type)
             print(f"✅ Кейсы проанализированы: {len(cases)} кейсов")
             
-            # Stage 3: Link Verification
-            print("🔗 Этап 3: Проверка ссылок")
-            await self.send_update("link_verification", "active", 0, "Проверяем ссылки...")
-            verified_cases = await self.verify_links(cases)
-            print(f"✅ Ссылки проверены: {len(verified_cases)} кейсов")
-            
-            # Stage 4: Report Generation
-            print("📝 Этап 4: Генерация отчета")
+            # Stage 3: Report Generation
+            print("📝 Этап 3: Генерация отчета")
             await self.send_update("report_generation", "active", 0, "Генерируем отчет...")
-            report = await self.generate_report(verified_cases, research_data, research_type)
+            report = await self.generate_report(cases, research_data, research_type)
             print(f"✅ Отчет готов: {len(report)} символов")
+            
+            # Stage 4: Link Verification (Final)
+            print("🔗 Этап 4: Финальная проверка ссылок")
+            await self.send_update("link_verification", "active", 0, "Проверяем все ссылки в отчете...")
+            final_report = await self.verify_report_links(report)
+            print(f"✅ Все ссылки проверены: {len(final_report)} символов")
             
             return {
                 "success": True,
-                "report": report,
+                "report": final_report,
                 "stages_completed": 5
             }
             
@@ -368,217 +383,8 @@ class ResearchProcessor:
             else:
                 raise Exception(f"API Error: {response.status_code}")
     
-    async def verify_links(self, cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Stage 3: Verify and enhance links"""
-        await self.send_update("link_verification", "active", 5, "Начинаем проверку ссылок...")
-        
-        verified_cases = []
-        total_cases = len(cases)
-        total_links = 0
-        working_links = 0
-        broken_links = 0
-        
-        print(f"🔗 Начинаем проверку ссылок для {total_cases} кейсов")
-        
-        for i, case in enumerate(cases):
-            progress = int((i / total_cases) * 90) + 5  # 5-95%
-            await self.send_update("link_verification", "active", progress, 
-                                 f"Проверяем ссылки для кейса {i+1}/{total_cases}")
-            
-            print(f"🔍 Проверяем кейс {i+1}: {case.get('title', 'Без названия')}")
-            
-            verified_case = await self.verify_case_links(case)
-            verified_cases.append(verified_case)
-            
-            # Count links for this case
-            case_working = len(verified_case.get('verified_links', []))
-            case_broken = len(verified_case.get('broken_links', []))
-            case_total = case_working + case_broken
-            
-            total_links += case_total
-            working_links += case_working
-            broken_links += case_broken
-            
-            print(f"📊 Кейс {i+1}: {case_working} рабочих, {case_broken} нерабочих ссылок")
-            
-            # Small delay to show progress
-            await asyncio.sleep(0.3)
-        
-        await self.send_update("link_verification", "active", 95, "Финализируем проверку...")
-        await asyncio.sleep(0.5)  # Small delay for final processing
-        
-        # Count unique countries from all cases
-        unique_countries = set()
-        for case in verified_cases:
-            if "country" in case and case["country"]:
-                # Handle multiple countries in one case (e.g., "Франция, Германия")
-                countries = [c.strip() for c in case["country"].split(",") if c.strip()]
-                unique_countries.update(countries)
-        
-        countries_count = len(unique_countries)
-        print(f"🌍 Найдено уникальных стран: {countries_count} - {list(unique_countries)}")
-        
-        # Send countries update
-        await self.send_update("link_verification", "active", 98, f"Найдено {countries_count} уникальных стран")
-        
-        # Send sources update
-        await self.send_update("link_verification", "active", 99, f"Найдено {total_links} источников")
-        
-        # Print final summary
-        print(f"📈 ИТОГИ ПРОВЕРКИ ССЫЛОК:")
-        print(f"   Всего кейсов: {total_cases}")
-        print(f"   Всего ссылок: {total_links}")
-        print(f"   Рабочих ссылок: {working_links}")
-        print(f"   Нерабочих ссылок: {broken_links}")
-        print(f"   Уникальных стран: {countries_count}")
-        if total_links > 0:
-            percentage = (working_links / total_links) * 100
-            print(f"   Процент рабочих: {percentage:.1f}%")
-        
-        await self.send_update("link_verification", "completed", 100, f"Проверено {len(verified_cases)} кейсов")
-        
-        return verified_cases
     
-    async def verify_case_links(self, case: Dict[str, Any]) -> Dict[str, Any]:
-        """Verify links for a single case"""
-        verified_case = case.copy()
-        
-        # Extract links from the case
-        links = []
-        if "links" in case:
-            links = case["links"]
-        elif "sources" in case:
-            links = case["sources"]
-        
-        print(f"   🔍 Найдено {len(links)} ссылок для проверки")
-        
-        # If no links found, ask AI to find more
-        if len(links) == 0:
-            print(f"   ⚠️ Ссылок не найдено! Запрашиваем у ИИ дополнительные ссылки...")
-            additional_links = await self.search_additional_links(case)
-            links.extend(additional_links)
-            print(f"   🔍 ИИ нашел {len(additional_links)} дополнительных ссылок")
-        
-        verified_links = []
-        broken_links = []
-        
-        # Check each link
-        for i, link in enumerate(links):
-            if isinstance(link, str) and link.startswith(('http://', 'https://')):
-                print(f"   🔗 Проверяем ссылку {i+1}: {link}")
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        response = await client.head(link, follow_redirects=True)
-                        if response.status_code < 400:
-                            print(f"   ✅ Ссылка работает: {response.status_code}")
-                            verified_links.append({
-                                "url": link,
-                                "status": "working",
-                                "status_code": response.status_code
-                            })
-                        else:
-                            print(f"   ❌ Ссылка не работает: {response.status_code}")
-                            broken_links.append({
-                                "url": link,
-                                "status": "broken",
-                                "status_code": response.status_code
-                            })
-                except Exception as e:
-                    print(f"   ⚠️ Ошибка проверки ссылки: {str(e)}")
-                    broken_links.append({
-                        "url": link,
-                        "status": "error",
-                        "error": str(e)
-                    })
-            else:
-                print(f"   ⏭️ Пропускаем невалидную ссылку: {link}")
-                # Not a valid URL, skip
-                continue
-        
-        print(f"   📊 Результат: {len(verified_links)} рабочих, {len(broken_links)} нерабочих")
-        
-        # Update case with verification results
-        verified_case["verified_links"] = verified_links
-        verified_case["broken_links"] = broken_links
-        verified_case["link_status"] = "verified"
-        verified_case["verification_timestamp"] = datetime.now().isoformat()
-        
-        return verified_case
     
-    async def search_additional_links(self, case: Dict[str, Any]) -> List[str]:
-        """Search for additional links using AI when no links are found"""
-        try:
-            company_name = case.get('title', case.get('name', 'компания'))
-            description = case.get('description', case.get('content', ''))
-            
-            prompt = f"""
-Ты - эксперт по поиску релевантных источников. Для компании "{company_name}" найди ТОЛЬКО 3-5 САМЫХ РЕЛЕВАНТНЫХ и АКТУАЛЬНЫХ ссылок.
-
-ОПИСАНИЕ КОМПАНИИ:
-{description}
-
-КРИТЕРИИ ОТБОРА ССЫЛОК:
-1. Официальный сайт компании (ОБЯЗАТЕЛЬНО)
-2. Самая релевантная страница продукта/функции
-3. Один из лучших кейсов использования или отзывов
-4. Актуальная новость или пресс-релиз (не старше 2 лет)
-5. Профиль в LinkedIn или Crunchbase (если есть)
-
-ВАЖНО:
-- ТОЛЬКО 3-5 ссылок, не больше
-- Все ссылки должны быть РЕЛЕВАНТНЫМИ и АКТУАЛЬНЫМИ
-- Приоритет: официальные источники > кейсы > новости > профили
-- Проверь актуальность - ссылки должны работать
-- Избегай дублирующих источников
-
-ФОРМАТ ОТВЕТА - ТОЛЬКО СПИСОК ССЫЛОК (3-5 штук):
-https://example.com
-https://example.com/product/feature
-https://example.com/case-study
-https://techcrunch.com/example-news
-https://linkedin.com/company/example
-"""
-            
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self.config.GEMINI_API_KEY
-                    },
-                    json={
-                        "contents": [{
-                            "parts": [{"text": prompt}]
-                        }],
-                        "generationConfig": {
-                            "temperature": 0.3
-                        }
-                    }
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    content = result["candidates"][0]["content"]["parts"][0]["text"]
-                    
-                    # Extract links from the response
-                    links = []
-                    for line in content.split('\n'):
-                        line = line.strip()
-                        if line.startswith('http://') or line.startswith('https://'):
-                            links.append(line)
-                    
-                    # Limit to 5 most relevant links
-                    links = links[:5]
-                    
-                    print(f"   🔍 ИИ нашел {len(links)} релевантных ссылок: {links}")
-                    return links
-                else:
-                    print(f"   ❌ Ошибка запроса к ИИ: {response.status_code}")
-                    return []
-                    
-        except Exception as e:
-            print(f"   ❌ Ошибка поиска дополнительных ссылок: {str(e)}")
-            return []
     
     async def generate_report(self, cases: List[Dict[str, Any]], research_data: Dict[str, Any], research_type: str) -> str:
         """Stage 4: Generate final report with retry mechanism"""
@@ -628,9 +434,8 @@ https://linkedin.com/company/example
                 await self.send_update("report_generation", "active", 95, "Добавляем дополнительные ссылки...")
                 enhanced_report = await self.enhance_report_with_links(report_content, cases, research_data, research_type)
                 
-                # Verify all links in the final report
-                await self.send_update("report_generation", "active", 98, "Проверяем все ссылки в отчете...")
-                final_report = await self.verify_report_links(enhanced_report)
+                # Clean the report content before final processing
+                final_report = self.clean_report_content(enhanced_report)
                 
                 # Final report length check
                 print(f"📊 ФИНАЛЬНЫЙ ОТЧЕТ:")
@@ -898,14 +703,10 @@ https://linkedin.com/company/example
 
 ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
 
-КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ВСЕ ИСТОЧНИКИ:
-1. Для КАЖДОГО факта, упоминания компании или продукта добавляй активные ссылки
-2. Если в кейсах есть проверенные ссылки (verified_links) - используй их
-3. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
+КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
+1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
    - [Название факта](http://maclay.pro/data/имя_файла.pdf)
-4. Для всех остальных фактов ищи и добавляй релевантные интернет-ссылки
-5. Каждый абзац должен содержать минимум 2-3 активные ссылки
-6. Ссылки должны быть релевантными и вести на официальные источники
+2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
@@ -970,14 +771,10 @@ https://linkedin.com/company/example
 
 ВАЖНО: Используй также локальные инсайты из PDF-документов для обогащения отчета дополнительными фактами и трендами.
 
-КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ВСЕ ИСТОЧНИКИ:
-1. Для КАЖДОГО факта, упоминания компании или продукта добавляй активные ссылки
-2. Если в кейсах есть проверенные ссылки (verified_links) - используй их
-3. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
+КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
+1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
    - [Название факта](http://maclay.pro/data/имя_файла.pdf)
-4. Для всех остальных фактов ищи и добавляй релевантные интернет-ссылки
-5. Каждый абзац должен содержать минимум 2-3 активные ссылки
-6. Ссылки должны быть релевантными и вести на официальные источники
+2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
 
@@ -1372,12 +1169,18 @@ https://linkedin.com/company/example
                     broken_links.append((text, url))
                     print(f"⚠️ Ошибка проверки ссылки: {str(e)}, удаляем")
             
-            # Remove broken links from report
+            # Remove broken links and their text from report
             if broken_links:
-                print(f"🗑️ Удаляем {len(broken_links)} нерабочих ссылок")
+                print(f"🗑️ Удаляем {len(broken_links)} нерабочих ссылок с текстом")
                 for text, url in broken_links:
-                    # Remove the broken link, keep only the text
-                    report_content = report_content.replace(f"[{text}]({url})", text)
+                    # Remove the entire link with text completely
+                    report_content = report_content.replace(f"[{text}]({url})", "")
+                
+                # Clean up extra whitespace and empty lines
+                import re
+                report_content = re.sub(r'\n\s*\n\s*\n', '\n\n', report_content)  # Remove multiple empty lines
+                report_content = re.sub(r'^\s*\n', '', report_content, flags=re.MULTILINE)  # Remove empty lines at start
+                report_content = report_content.strip()
             
             # Replace original links with verified alternatives
             for text, url in verified_links:

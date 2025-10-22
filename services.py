@@ -7,12 +7,27 @@ from database import ResearchReport, UserSession, get_db
 from datetime import datetime
 from typing import Optional, List
 import uuid
+import re
 
 class ReportService:
     """Service for managing research reports"""
     
     def __init__(self, db: Session):
         self.db = db
+    
+    def clean_report_content(self, content: str) -> str:
+        """Clean report content by removing standalone single asterisks"""
+        if not content:
+            return content
+        
+        # Remove standalone single asterisks (not part of bold formatting)
+        # This regex looks for single asterisks that are not part of **bold** or *italic* formatting
+        cleaned_content = re.sub(r'(?<!\*)\*(?!\*)(?![^*]*\*)', '', content)
+        
+        # Remove asterisks after colons (like "Оценка сложности:* Средняя")
+        cleaned_content = re.sub(r':\*\s*', ': ', cleaned_content)
+        
+        return cleaned_content
     
     def create_report(
         self,
@@ -38,9 +53,12 @@ class ReportService:
         else:
             user_session = None
         
+        # Clean the content before saving
+        cleaned_content = self.clean_report_content(content)
+        
         report = ResearchReport(
             title=title,
-            content=content,
+            content=cleaned_content,
             research_type=research_type,
             product_description=product_description,
             segment=segment,
