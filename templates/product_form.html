@@ -241,7 +241,7 @@
             
             function updateCounter() {
                 const length = textarea.value.length;
-                counter.textContent = `${length}/${maxLength}`;
+                counter.textContent = length + '/' + maxLength;
                 if (length > maxLength * 0.9) {
                     counter.style.color = '#ff6b6b';
                 } else {
