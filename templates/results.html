@@ -158,6 +158,20 @@
                     .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
                     // Remove asterisks after colons (like "Оценка сложности:* Средняя")
                     .replace(/:\*\s*/g, ': ')
+                    // Remove single asterisks after colon and space (like "Текст: *")
+                    .replace(/:\s*\*/g, ':')
+                    // Remove multiple consecutive commas
+                    .replace(/,\s*,+/g, ',')
+                    // Remove commas between links (like "link1, , link2")
+                    .replace(/,\s*,\s*/g, ', ')
+                    // Remove trailing commas before links
+                    .replace(/,\s*\[/g, ' [')
+                    // Remove leading commas after links
+                    .replace(/\]\s*,/g, ']')
+                    // Remove trailing commas at the end of lines
+                    .replace(/,\s*$/gm, '')
+                    // Remove commas followed by only whitespace
+                    .replace(/,\s*$/gm, '')
                     // Lists
                     .replace(/^•\s*(.+)$/gm, '<li>$1</li>')
                     .replace(/^(\d+)\.\s*(.+)$/gm, '<li>$2</li>');
@@ -199,6 +213,20 @@
                 .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
                 // Remove asterisks after colons (like "Оценка сложности:* Средняя")
                 .replace(/:\*\s*/g, ': ')
+                // Remove single asterisks after colon and space (like "Текст: *")
+                .replace(/:\s*\*/g, ':')
+                // Remove multiple consecutive commas
+                .replace(/,\s*,+/g, ',')
+                // Remove commas between links (like "link1, , link2")
+                .replace(/,\s*,\s*/g, ', ')
+                // Remove trailing commas before links
+                .replace(/,\s*\[/g, ' [')
+                // Remove leading commas after links
+                .replace(/\]\s*,/g, ']')
+                // Remove trailing commas at the end of lines
+                .replace(/,\s*$/gm, '')
+                // Remove commas followed by only whitespace
+                .replace(/,\s*$/gm, '')
                 // Links - improved formatting (avoid double processing)
                 .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="source-link">$1</a>')
                 .replace(/(?<!href=")(https?:\/\/[^\s<>"\)\]]+)(?![^<]*<\/a>)/g, function(match) {

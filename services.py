@@ -27,6 +27,30 @@ class ReportService:
         # Remove asterisks after colons (like "Оценка сложности:* Средняя")
         cleaned_content = re.sub(r':\*\s*', ': ', cleaned_content)
         
+        # Remove single asterisks after colon and space (like "Текст: *")
+        cleaned_content = re.sub(r':\s*\*', ':', cleaned_content)
+        
+        # Remove multiple consecutive commas
+        cleaned_content = re.sub(r',\s*,+', ',', cleaned_content)
+        
+        # Remove commas between links (like "link1, , link2")
+        cleaned_content = re.sub(r',\s*,\s*', ', ', cleaned_content)
+        
+        # Remove trailing commas before links
+        cleaned_content = re.sub(r',\s*\[', ' [', cleaned_content)
+        
+        # Remove leading commas after links
+        cleaned_content = re.sub(r'\]\s*,', ']', cleaned_content)
+        
+        # Remove trailing commas at the end of lines or before empty space
+        cleaned_content = re.sub(r',\s*$', '', cleaned_content, flags=re.MULTILINE)
+        
+        # Remove commas followed by only whitespace and nothing else
+        cleaned_content = re.sub(r',\s*$', '', cleaned_content, flags=re.MULTILINE)
+        
+        # Remove commas before empty content (like "text, ")
+        cleaned_content = re.sub(r',\s*$', '', cleaned_content, flags=re.MULTILINE)
+        
         return cleaned_content
     
     def create_report(

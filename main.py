@@ -790,7 +790,7 @@ async def delete_report(report_id: int, db: Session = Depends(get_db)):
 
 @app.get("/data/{filename}")
 async def download_pdf(filename: str):
-    """Скачать PDF файл из папки data"""
+    """Открыть PDF файл из папки data в браузере"""
     import os
     from pathlib import Path
     
@@ -810,7 +810,8 @@ async def download_pdf(filename: str):
     return FileResponse(
         path=str(file_path),
         filename=filename,
-        media_type='application/pdf'
+        media_type='application/pdf',
+        headers={'Content-Disposition': 'inline'}  # Открывать в браузере, а не скачивать
     )
 
 @app.post("/export-pdf")
