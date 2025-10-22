@@ -705,7 +705,7 @@ class ResearchProcessor:
 
 КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
 1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
-   - [Название факта](http://maclay.pro/data/имя_файла.pdf)
+   - [Название факта]({self.config.BASE_URL}/data/имя_файла.pdf)
 2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
@@ -773,7 +773,7 @@ class ResearchProcessor:
 
 КРИТИЧЕСКИ ВАЖНО - ССЫЛКИ НА ЛОКАЛЬНЫЕ ФАКТЫ:
 1. Если упоминаются факты из локальных PDF - добавляй ссылки на них в формате:
-   - [Название факта](http://maclay.pro/data/имя_файла.pdf)
+   - [Название факта]({self.config.BASE_URL}/data/имя_файла.pdf)
 2. Ссылки должны быть релевантными и вести на соответствующие PDF-документы
 
 СОЗДАЙ ОТЧЕТ В СЛЕДУЮЩЕМ ФОРМАТЕ:
@@ -842,7 +842,7 @@ class ResearchProcessor:
                         continue
                     source_file = item.get("source_file") or item.get("source") or "unknown.pdf"
                     # Create download link for the PDF file
-                    download_link = f"http://maclay.pro/data/{source_file}"
+                    download_link = f"{self.config.BASE_URL}/data/{source_file}"
                     norm.append({
                         "source_file": source_file,
                         "download_link": download_link,
@@ -863,7 +863,7 @@ class ResearchProcessor:
                 continue
             insights.append({
                 "source_file": "unknown.pdf",
-                "download_link": "http://maclay.pro/data/unknown.pdf",
+                "download_link": f"{self.config.BASE_URL}/data/unknown.pdf",
                 "section": "",
                 "fact": line,
                 "metrics": None,
@@ -1151,7 +1151,7 @@ class ResearchProcessor:
                 
                 try:
                     # Skip PDF links to our domain - they should work
-                    if url.startswith('http://maclay.pro/data/'):
+                    if url.startswith(f'{self.config.BASE_URL}/data/'):
                         verified_links.append((text, url))
                         print(f"✅ PDF ссылка пропущена: {url}")
                         continue
