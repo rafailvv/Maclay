@@ -41,13 +41,34 @@ class ConnectionManager:
     def disconnect(self, client_id: str):
         if client_id in self.active_connections:
             del self.active_connections[client_id]
+            print(f"🔌 Клиент {client_id} отключен")
+    
+    def cleanup_disconnected(self):
+        """Очистка отключенных соединений"""
+        disconnected_clients = []
+        for client_id, websocket in self.active_connections.items():
+            if websocket.client_state.name != "CONNECTED":
+                disconnected_clients.append(client_id)
+        
+        for client_id in disconnected_clients:
+            self.disconnect(client_id)
+            print(f"🧹 Очищен отключенный клиент: {client_id}")
 
     async def send_message(self, client_id: str, message: dict):
         print(f"📤 Отправляем сообщение клиенту {client_id}: {message}")
+        # Очищаем отключенные соединения перед отправкой
+        self.cleanup_disconnected()
+        
         if client_id in self.active_connections:
             try:
-                await self.active_connections[client_id].send_text(json.dumps(message))
-                print(f"✅ Сообщение отправлено клиенту {client_id}")
+                websocket = self.active_connections[client_id]
+                # Проверяем состояние соединения
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.send_text(json.dumps(message))
+                    print(f"✅ Сообщение отправлено клиенту {client_id}")
+                else:
+                    print(f"⚠️ WebSocket клиента {client_id} не в состоянии CONNECTED: {websocket.client_state.name}")
+                    self.disconnect(client_id)
             except Exception as e:
                 import traceback
                 error_details = traceback.format_exc()
