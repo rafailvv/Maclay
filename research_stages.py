@@ -85,10 +85,15 @@ class ResearchProcessor:
         if not content:
             return content
         
+        import re
+        
+        # Remove single asterisks at the beginning of lines (improved)
+        cleaned_content = re.sub(r'^\*\s+', '', content, flags=re.MULTILINE)
+        cleaned_content = re.sub(r'^\*\s*$', '', cleaned_content, flags=re.MULTILINE)
+        
         # Remove standalone single asterisks (not part of bold formatting)
         # This regex looks for single asterisks that are not part of **bold** or *italic* formatting
-        import re
-        cleaned_content = re.sub(r'(?<!\*)\*(?!\*)(?![^*]*\*)', '', content)
+        cleaned_content = re.sub(r'(?<!\*)\*(?!\*)(?![^*]*\*)', '', cleaned_content)
         
         # Remove asterisks after colons (like "Оценка сложности:* Средняя")
         cleaned_content = re.sub(r':\*\s*', ': ', cleaned_content)
@@ -549,7 +554,7 @@ class ResearchProcessor:
             return f"""
 Ты — эксперт по поиску и сбору данных о финтех-продуктах.
 
-ЦЕЛЬ: Найти и собрать информацию о продуктах с характеристиками "{research_data.get('product_characteristics', '')}".
+ЦЕЛЬ: Найти и собрать МАКСИМАЛЬНО ПОДРОБНУЮ информацию о продуктах с характеристиками "{research_data.get('product_characteristics', '')}".
 
 ПАРАМЕТРЫ ИССЛЕДОВАНИЯ:
 - Продукт: {research_data.get('product_description', '')}
@@ -558,30 +563,50 @@ class ResearchProcessor:
 - Обязательные игроки: {research_data.get('required_players', '')}
 - Обязательные страны: {research_data.get('required_countries', '')}
 
-ЗАДАЧА:
-1. Найди 15-20 продуктов, соответствующих характеристикам
-2. Для каждого продукта укажи:
-   - Название продукта и компании
-   - Страна/регион
-   - Тип продукта
-   - Ключевые характеристики
-   - Официальный сайт
-   - Дополнительные источники
+КРИТИЧЕСКИ ВАЖНО - ПОИСК ССЫЛОК:
+1. Найди МИНИМУМ 15-20 продуктов
+2. Для КАЖДОГО продукта найди МИНИМУМ 8-10 ОФИЦИАЛЬНЫХ ССЫЛОК:
+   - Официальный сайт продукта
+   - Социальные сети компании (LinkedIn, Twitter, Facebook)
+   - Продуктовые страницы и функции
+   - Кейсы использования и отзывы
+   - Пресс-релизы и новости
+   - Информация о финансировании
+   - Партнерства и интеграции
+   - Достижения и награды
+   - Блоги и техническая документация
+   - Отзывы клиентов и рейтинги
+
+3. Если ссылок мало - ищи ГЛУБЖЕ:
+   - Проверяй LinkedIn, Crunchbase, TechCrunch, Product Hunt
+   - Ищи в отраслевых изданиях, блогах, форумах
+   - Проверяй актуальность всех ссылок
+   - Если не находишь ссылки - ищи альтернативные источники
 
 ВАЖНО:
 - НЕ генерируй изображения
 - НЕ создавай скриншоты
-- Фокусируйся только на сборе данных
+- Фокусируйся на МАКСИМАЛЬНОМ количестве ссылок
 - Используй только проверенные источники
+- Группируй по странам/регионам
 - Каждый продукт должен быть в формате:
   Продукт: [название]
   Компания: [название компании]
   Сайт: [официальный сайт]
+  Соцсети: [ссылки на соцсети]
+  Продукты: [ссылки на продукты]
+  Кейсы: [ссылки на кейсы]
+  Новости: [ссылки на новости]
+  Финансирование: [ссылки на финансирование]
+  Партнерства: [ссылки на партнерства]
+  Достижения: [ссылки на достижения]
+  Блоги: [ссылки на блоги]
+  Отзывы: [ссылки на отзывы]
   Страна: [страна]
   Характеристики: [ключевые характеристики]
 
 ФОРМАТ ОТВЕТА:
-Структурированный список продуктов с базовой информацией.
+Структурированный список продуктов с МАКСИМАЛЬНЫМ количеством ссылок.
 """
     
     def get_local_documents_prompt(self, files_payload: List[Dict[str, Any]], research_data: Dict[str, Any], research_type: str) -> str:
@@ -697,6 +722,19 @@ class ResearchProcessor:
 ЛОКАЛЬНЫЕ ИНСАЙТЫ ИЗ PDF:
 {json.dumps(market_data.get('local_insights', {}), ensure_ascii=False, indent=2)}
 
+КРИТИЧЕСКИ ВАЖНО - МАКСИМАЛЬНОЕ КОЛИЧЕСТВО ССЫЛОК:
+1. Для КАЖДОГО кейса найди МИНИМУМ 5-7 ПОДТВЕРЖДАЮЩИХ ССЫЛОК
+2. Если ссылок мало - ищи ГЛУБЖЕ в исходных данных
+3. Проверяй все найденные ссылки на актуальность
+4. Добавляй ссылки на:
+   - Официальные страницы продуктов
+   - Техническую документацию
+   - Кейсы использования
+   - Отзывы клиентов
+   - Пресс-релизы и новости
+   - Партнерские интеграции
+   - Достижения и награды
+
 ЗАДАЧА:
 Создай 10-12 детальных кейсов продуктов по шаблону:
 
@@ -713,17 +751,21 @@ class ResearchProcessor:
 - [характеристика 2]
 - [характеристика 3]
 
-**Подробное описание:**
-- Функциональность
-- Целевая аудитория
-- Уникальные особенности
-- Результаты/метрики (если есть)
+**Подробное описание продукта:**
+- Как работает продукт
+- Где в пользовательском пути
+- Для кого предназначен
+- Какие триггеры
+- Метрики/результаты (если есть)
 
-**Источники:**
-- [ссылка 1]
-- [ссылка 2]
-- [ссылка 3]
-
+**Источники (МИНИМУМ 5-7 ссылок):**
+- [официальная ссылка 1]
+- [продуктовая ссылка 2]
+- [кейс использования 3]
+- [техническая документация 4]
+- [отзыв клиента 5]
+- [новость/пресс-релиз 6]
+- [партнерство/интеграция 7]
 
 ВАЖНО:
 - НЕ генерируй изображения
@@ -731,6 +773,7 @@ class ResearchProcessor:
 - Каждый кейс должен быть уникальным
 - Все ссылки должны быть рабочими
 - Указывай конкретные даты
+- Фокусируйся на применимости к нашему контексту
 - Используй только текстовое описание
 """
     
@@ -767,7 +810,7 @@ class ResearchProcessor:
 
 # Отчет по исследованию фичи: {research_data.get('research_element', '')}
 
-## Executive Summary
+## Краткое резюме
 [Краткое резюме на 5-7 пунктов]
 
 ## Анализ кейсов
@@ -839,7 +882,7 @@ class ResearchProcessor:
 
 # Отчет по исследованию продукта: {research_data.get('product_characteristics', '')}
 
-## Executive Summary
+## Краткое резюме
 [Краткое резюме на 5-7 пунктов]
 
 ## Анализ продуктов
@@ -852,14 +895,14 @@ class ResearchProcessor:
 | 2 | [название] | [компания] | [страна] | [характеристики] | [ссылки] |
 | ... | ... | ... | ... | ... | ... |
 
-## Рыночные тренды
-[Анализ трендов и паттернов]
+## Применимость к нашему продукту
+[Анализ применимости с конкретными рекомендациями]
 
-## Рекомендации
-[Конкретные рекомендации для нашего продукта]
+## План внедрения
+[Пошаговый план внедрения с оценкой сложности]
 
-## План развития
-[Пошаговый план развития продукта]
+## Риски и ограничения
+[Потенциальные риски и способы их минимизации]
 
 КРИТИЧЕСКИ ВАЖНО - МАКСИМАЛЬНОЕ КОЛИЧЕСТВО ССЫЛОК:
 1. В КАЖДОЙ таблице должно быть МИНИМУМ 3-5 ссылок на продукт
@@ -973,7 +1016,7 @@ class ResearchProcessor:
             }
     
     def extract_companies_from_text(self, text: str) -> List[Dict[str, Any]]:
-        """Extract company information from text"""
+        """Extract company/product information from text"""
         companies = []
         lines = text.split('\n')
         
@@ -986,8 +1029,8 @@ class ResearchProcessor:
                     current_company = {}
                 continue
                 
-            # Look for company patterns
-            if any(keyword in line.lower() for keyword in ['компания:', 'company:', 'название:', 'name:']):
+            # Look for company/product patterns - support both
+            if any(keyword in line.lower() for keyword in ['компания:', 'company:', 'название:', 'name:', 'продукт:', 'product:']):
                 if current_company:
                     companies.append(current_company)
                 current_company = {"name": line.split(':', 1)[1].strip() if ':' in line else line}
@@ -997,6 +1040,9 @@ class ResearchProcessor:
             elif any(keyword in line.lower() for keyword in ['страна:', 'country:']):
                 if current_company:
                     current_company["country"] = line.split(':', 1)[1].strip() if ':' in line else line
+            elif any(keyword in line.lower() for keyword in ['характеристики:', 'characteristics:']):
+                if current_company:
+                    current_company["characteristics"] = line.split(':', 1)[1].strip() if ':' in line else line
             elif line.startswith('http'):
                 if current_company:
                     if "links" not in current_company:
@@ -1036,8 +1082,11 @@ class ResearchProcessor:
             if not line:
                 continue
                 
-            # Look for case patterns
-            if line.startswith(f'**Кейс {case_number}') or line.startswith(f'Кейс {case_number}'):
+            # Look for case patterns - support both feature and product cases
+            if (line.startswith(f'**Кейс {case_number}') or 
+                line.startswith(f'Кейс {case_number}') or
+                line.startswith(f'**Продукт {case_number}') or
+                line.startswith(f'Продукт {case_number}')):
                 if current_case:
                     cases.append(current_case)
                 current_case = {
@@ -1045,13 +1094,15 @@ class ResearchProcessor:
                     "title": line.replace('**', '').replace('*', '').strip()
                 }
                 case_number += 1
-            elif line.startswith('**Компания:') or line.startswith('Компания:'):
+            elif (line.startswith('**Компания:') or line.startswith('Компания:') or
+                  line.startswith('**Продукт:') or line.startswith('Продукт:')):
                 if current_case:
                     current_case["company"] = line.split(':', 1)[1].strip() if ':' in line else line
             elif line.startswith('**Страна:') or line.startswith('Страна:'):
                 if current_case:
                     current_case["country"] = line.split(':', 1)[1].strip() if ':' in line else line
-            elif line.startswith('**Источники:') or line.startswith('Источники:'):
+            elif (line.startswith('**Источники:') or line.startswith('Источники:') or
+                  line.startswith('**Ссылки:') or line.startswith('Ссылки:')):
                 if current_case:
                     current_case["sources"] = []
             elif line.startswith('http'):

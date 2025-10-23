@@ -150,10 +150,12 @@
                     .replace(/^###\s+(.*$)/gim, '<h3>$1</h3>')
                     .replace(/^##\s+(.*$)/gim, '<h2>$1</h2>')
                     .replace(/^#\s+(.*$)/gim, '<h1>$1</h1>')
+                    // Remove single asterisks at the beginning of lines (improved)
+                    .replace(/^\*\s+/gm, '')
+                    .replace(/^\*\s*$/gm, '')
                     // Bold text
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                     .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
-                    .replace(/^\*\s*/gm, '')
                     // Remove standalone single asterisks
                     .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
                     // Remove asterisks after colons (like "Оценка сложности:* Средняя")
@@ -199,6 +201,9 @@
                 .replace(/^\s+/gm, '')
                 // Remove trailing whitespace from each line
                 .replace(/\s+$/gm, '')
+                // Remove single asterisks at the beginning of lines (improved)
+                .replace(/^\*\s+/gm, '')
+                .replace(/^\*\s*$/gm, '')
                 // Headers - improved to handle whitespace
                 .replace(/^####\s+(.*$)/gim, '<h4>$1</h4>')
                 .replace(/^###\s+(.*$)/gim, '<h3>$1</h3>')
@@ -207,8 +212,6 @@
                 // Bold text (both **text** and *text* should be bold)
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
-                // Remove single asterisks at the beginning of lines
-                .replace(/^\*\s*/gm, '')
                 // Remove standalone single asterisks (not part of bold formatting)
                 .replace(/(?<!\*)\*(?!\*)(?![^*]*\*)/g, '')
                 // Remove asterisks after colons (like "Оценка сложности:* Средняя")
