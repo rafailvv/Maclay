@@ -107,6 +107,25 @@ async def feature_form(request: Request):
 async def product_form(request: Request):
     return templates.TemplateResponse("product_form.html", {"request": request})
 
+@app.get("/loading", response_class=HTMLResponse)
+async def loading_page(request: Request):
+    """Loading page for research process"""
+    # Try to get research data from session or return empty data
+    research_data = {
+        "product_description": "",
+        "segment": "",
+        "research_element": "",
+        "product_characteristics": "",
+        "benchmarks": "",
+        "required_players": "",
+        "required_countries": ""
+    }
+    
+    return templates.TemplateResponse("loading.html", {
+        "request": request,
+        "research_data": research_data
+    })
+
 @app.post("/process-feature")
 async def process_feature(
     request: Request,
@@ -586,31 +605,58 @@ Mapping к нашим целям/метрикам: какие north-star/под�
 
     # Отправляем запрос к Gemini API
     async with httpx.AsyncClient(timeout=600.0) as client:  # 10 minutes for HTTP requests
-        response = await client.post(
-            config.GEMINI_API_URL,
-            headers={
-                "Content-Type": "application/json"
-            },
-            params={
-                "key": config.GEMINI_API_KEY
-            },
-            json={
-                "contents": [
-                    {
-                        "parts": [
+        # Retry logic for 503 errors (model overloaded)
+        max_retries = 5
+        attempt = 0
+        
+        while attempt < max_retries:
+            try:
+                response = await client.post(
+                    config.GEMINI_API_URL,
+                    headers={
+                        "Content-Type": "application/json"
+                    },
+                    params={
+                        "key": config.GEMINI_API_KEY
+                    },
+                    json={
+                        "contents": [
                             {
-                                "text": prompt
+                                "parts": [
+                                    {
+                                        "text": prompt
+                                    }
+                                ]
                             }
-                        ]
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.7,
+                            "topP": 0.8,
+                            "topK": 40
+                        }
                     }
-                ],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "topP": 0.8,
-                    "topK": 40
-                }
-            }
-        )
+                )
+                
+                # Check for 503 error (model overloaded)
+                if response.status_code == 503:
+                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                    error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                    
+                    print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                    await asyncio.sleep(5)  # Wait 5 seconds before retry
+                    # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                    continue
+                
+                # If not 503, break out of retry loop
+                break
+                
+            except Exception as e:
+                attempt += 1
+                print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    raise e
         
         if response.status_code == 200:
             result = response.json()

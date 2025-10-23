@@ -322,10 +322,13 @@
             if (loadingTitle) loadingTitle.textContent = 'Перезапускаем исследование...';
             if (loadingSubtitle) loadingSubtitle.textContent = 'Обновляем данные и начинаем заново';
             
-            // Restart process with page refresh simulation
+            // Generate new client ID for restart
+            clientId = 'client_' + Math.random().toString(36).substr(2, 9);
+            console.log('🆔 Новый client_id для перезапуска:', clientId);
+            
+            // Restart the research process with the same data
             setTimeout(() => {
-                // Simulate page refresh by reloading the page with fresh data
-                window.location.reload();
+                startReportGeneration();
             }, 1500);
         }
         

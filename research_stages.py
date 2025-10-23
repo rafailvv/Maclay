@@ -215,21 +215,48 @@ class ResearchProcessor:
             api_url = f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent"
             print(f"🌐 Отправляем запрос к {api_url}")
             
-            response = await client.post(
-                api_url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self.config.GEMINI_API_KEY
-                },
-                json={
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.7
-                    }
-                }
-            )
+            # Retry logic for 503 errors (model overloaded)
+            max_retries = 5
+            attempt = 0
+            
+            while attempt < max_retries:
+                try:
+                    response = await client.post(
+                        api_url,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.config.GEMINI_API_KEY
+                        },
+                        json={
+                            "contents": [{
+                                "parts": [{"text": prompt}]
+                            }],
+                            "generationConfig": {
+                                "temperature": 0.7
+                            }
+                        }
+                    )
+                    
+                    # Check for 503 error (model overloaded)
+                    if response.status_code == 503:
+                        error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                        error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                        
+                        print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                        await asyncio.sleep(5)  # Wait 5 seconds before retry
+                        # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                        continue
+                    
+                    # If not 503, break out of retry loop
+                    break
+                    
+                except Exception as e:
+                    attempt += 1
+                    print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise e
             
             print(f"📡 Получен ответ: {response.status_code}")
             await self.send_update("data_collection", "active", 70, "Обрабатываем ответ...")
@@ -326,21 +353,49 @@ class ResearchProcessor:
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             await self.send_update("local_documents", "active", 70, "Отправляем запрос к ИИ...")
-            response = await client.post(
-                f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self.config.GEMINI_API_KEY
-                },
-                json={
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.2
-                    }
-                }
-            )
+            
+            # Retry logic for 503 errors (model overloaded)
+            max_retries = 5
+            attempt = 0
+            
+            while attempt < max_retries:
+                try:
+                    response = await client.post(
+                        f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.config.GEMINI_API_KEY
+                        },
+                        json={
+                            "contents": [{
+                                "parts": [{"text": prompt}]
+                            }],
+                            "generationConfig": {
+                                "temperature": 0.2
+                            }
+                        }
+                    )
+                    
+                    # Check for 503 error (model overloaded)
+                    if response.status_code == 503:
+                        error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                        error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                        
+                        print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                        await asyncio.sleep(5)  # Wait 5 seconds before retry
+                        # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                        continue
+                    
+                    # If not 503, break out of retry loop
+                    break
+                    
+                except Exception as e:
+                    attempt += 1
+                    print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise e
 
         if response.status_code != 200:
             await self.send_update("local_documents", "error", 0, f"API Error: {response.status_code}")
@@ -395,21 +450,48 @@ class ResearchProcessor:
         await self.send_update("case_analysis", "active", 30, "Отправляем запрос на анализ...")
         
         async with httpx.AsyncClient(timeout=270.0) as client:
-            response = await client.post(
-                f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self.config.GEMINI_API_KEY
-                },
-                json={
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.5
-                    }
-                }
-            )
+            # Retry logic for 503 errors (model overloaded)
+            max_retries = 5
+            attempt = 0
+            
+            while attempt < max_retries:
+                try:
+                    response = await client.post(
+                        f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.config.GEMINI_API_KEY
+                        },
+                        json={
+                            "contents": [{
+                                "parts": [{"text": prompt}]
+                            }],
+                            "generationConfig": {
+                                "temperature": 0.5
+                            }
+                        }
+                    )
+                    
+                    # Check for 503 error (model overloaded)
+                    if response.status_code == 503:
+                        error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                        error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                        
+                        print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                        await asyncio.sleep(5)  # Wait 5 seconds before retry
+                        # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                        continue
+                    
+                    # If not 503, break out of retry loop
+                    break
+                    
+                except Exception as e:
+                    attempt += 1
+                    print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise e
             
             await self.send_update("case_analysis", "active", 70, "Обрабатываем результаты анализа...")
             
@@ -447,21 +529,48 @@ class ResearchProcessor:
         await self.send_update("report_generation", "active", 30, "Отправляем запрос на генерацию отчета...")
         
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self.config.GEMINI_API_KEY
-                },
-                json={
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.3
-                    }
-                }
-            )
+            # Retry logic for 503 errors (model overloaded)
+            max_retries = 5
+            attempt = 0
+            
+            while attempt < max_retries:
+                try:
+                    response = await client.post(
+                        f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.config.GEMINI_API_KEY
+                        },
+                        json={
+                            "contents": [{
+                                "parts": [{"text": prompt}]
+                            }],
+                            "generationConfig": {
+                                "temperature": 0.3
+                            }
+                        }
+                    )
+                    
+                    # Check for 503 error (model overloaded)
+                    if response.status_code == 503:
+                        error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                        error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                        
+                        print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                        await asyncio.sleep(5)  # Wait 5 seconds before retry
+                        # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                        continue
+                    
+                    # If not 503, break out of retry loop
+                    break
+                    
+                except Exception as e:
+                    attempt += 1
+                    print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                    if attempt < max_retries:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise e
             
             await self.send_update("report_generation", "active", 70, "Обрабатываем ответ...")
             
@@ -1209,21 +1318,48 @@ class ResearchProcessor:
 """
             
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self.config.GEMINI_API_KEY
-                    },
-                    json={
-                        "contents": [{
-                            "parts": [{"text": prompt}]
-                        }],
-                        "generationConfig": {
-                            "temperature": 0.3
-                        }
-                    }
-                )
+                # Retry logic for 503 errors (model overloaded)
+                max_retries = 5
+                attempt = 0
+                
+                while attempt < max_retries:
+                    try:
+                        response = await client.post(
+                            f"{self.config.GEMINI_API_URL}/v1beta/models/{self.config.GEMINI_MODEL}:generateContent",
+                            headers={
+                                "Content-Type": "application/json",
+                                "x-goog-api-key": self.config.GEMINI_API_KEY
+                            },
+                            json={
+                                "contents": [{
+                                    "parts": [{"text": prompt}]
+                                }],
+                                "generationConfig": {
+                                    "temperature": 0.3
+                                }
+                            }
+                        )
+                        
+                        # Check for 503 error (model overloaded)
+                        if response.status_code == 503:
+                            error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                            error_message = error_data.get('error', {}).get('message', 'Model overloaded')
+                            
+                            print(f"⚠️ Модель перегружена (503), повторяем через 5 секунд... (попытка не засчитывается)")
+                            await asyncio.sleep(5)  # Wait 5 seconds before retry
+                            # НЕ увеличиваем attempt для 503 ошибки - не тратим попытки
+                            continue
+                        
+                        # If not 503, break out of retry loop
+                        break
+                        
+                    except Exception as e:
+                        attempt += 1
+                        print(f"❌ Ошибка на попытке {attempt}: {str(e)}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        else:
+                            raise e
                 
                 if response.status_code == 200:
                     result = response.json()
