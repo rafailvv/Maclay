@@ -288,8 +288,8 @@ class ResearchProcessor:
             stage_description="обработки локальных PDF"
         )
 
-    def _read_pdf_text(self, file_path: str, max_chars: int = 20000) -> str:
-        """Extract text from a PDF file with a character cap for efficiency"""
+    def _read_pdf_text(self, file_path: str, max_chars: int = None) -> str:
+        """Extract text from a PDF file - full text extraction"""
         text_parts: List[str] = []
         try:
             with pdfplumber.open(file_path) as pdf:
@@ -297,14 +297,16 @@ class ResearchProcessor:
                     page_text = page.extract_text() or ""
                     if page_text:
                         text_parts.append(page_text)
-                    if sum(len(p) for p in text_parts) >= max_chars:
-                        break
+                    # Remove character limit - extract full text
+                    # if max_chars and sum(len(p) for p in text_parts) >= max_chars:
+                    #     break
         except Exception as e:
             print(f"⚠️ Ошибка чтения PDF {file_path}: {e}")
         text = "\n".join(text_parts)
         # Normalize excessive whitespace
         text = re.sub(r"\s+", " ", text)
-        return text[:max_chars]
+        # Return full text without character limit
+        return text
 
     async def _collect_local_documents_insights_internal(self, research_data: Dict[str, Any], research_type: str) -> Dict[str, Any]:
         await self.send_update("local_documents", "active", 5, "Сканируем каталог с PDF...")
@@ -334,7 +336,7 @@ class ResearchProcessor:
             
             print(f"📄 Обрабатываем PDF {i+1}/{len(pdf_files)}: {os.path.basename(f)}")
             
-            text = self._read_pdf_text(f, max_chars=18000)
+            text = self._read_pdf_text(f)  # Extract full text without character limit
             total_chars += len(text)
             files_payload.append({
                 "file": os.path.basename(f),
